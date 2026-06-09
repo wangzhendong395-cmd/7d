@@ -86,6 +86,25 @@ const compactStockCard = (item) => ({
   conclusion: item.conclusion
 });
 
+const decorateOpportunity = (item, db) => {
+  const watchEntry = db.watchlistEntries.find((entry) => entry.opportunityId === item.id);
+  const poolStatus = watchEntry
+    ? watchEntry.isPriorityWatch
+      ? "重点关注"
+      : "普通观察"
+    : "未入池";
+  return {
+    ...item,
+    stockCode: item.symbol,
+    triggerEvent: item.event,
+    entryReason: item.reasons,
+    keyRisks: item.risks,
+    followUpPoints: item.watchSignals,
+    poolStatus,
+    isPriorityWatch: Boolean(watchEntry?.isPriorityWatch)
+  };
+};
+
 const filterOpportunities = (items, url) => {
   const market = url.searchParams.get("market");
   const industry = url.searchParams.get("industry");
@@ -159,6 +178,30 @@ const buildStockBrief = (db, symbol) => {
   };
 };
 
+const latestTrackedReturn = (performance) =>
+  [performance?.t20, performance?.t10, performance?.t5, performance?.t3, performance?.t1].find((value) => Number.isFinite(value));
+
+const buildWatchPoolItems = (db, { priorityOnly = false } = {}) =>
+  db.watchlistEntries
+    .filter((entry) => !priorityOnly || entry.isPriorityWatch)
+    .map((entry) => {
+      const performance = db.performanceTracking.find((item) => item.watchlistId === entry.id) || null;
+      const snapshot = db.marketSnapshots.find((item) => item.symbol.toUpperCase() === entry.symbol.toUpperCase()) || null;
+      const latestEvent = db.rawEvents
+        .filter((event) => event.symbol.toUpperCase() === entry.symbol.toUpperCase())
+        .sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt))[0];
+      return {
+        ...entry,
+        stockCode: entry.stockCode || entry.symbol,
+        entryLevel: entry.entryLevel || entry.entryGrade,
+        currentPrice: snapshot?.price ?? null,
+        latestEvent: latestEvent?.summary || latestEvent?.title || "",
+        performance,
+        latestTrackedReturn: latestTrackedReturn(performance)
+      };
+    })
+    .sort((a, b) => Number(b.isPriorityWatch) - Number(a.isPriorityWatch) || gradeRank[b.entryGrade] - gradeRank[a.entryGrade] || b.entryScore - a.entryScore);
+
 const routeApi = async (req, res, url) => {
   const db = await readDb();
 
@@ -194,7 +237,7 @@ const routeApi = async (req, res, url) => {
     const limit = clamp(Number(url.searchParams.get("limit") || 50) || 50, 1, 50);
     const items = shouldGroup ? groupOpportunitiesByStock(filtered) : filtered;
     return json(res, {
-      items: items.slice(0, limit),
+      items: items.slice(0, limit).map((item) => decorateOpportunity(item, db)),
       total: items.length,
       limit,
       disclaimer: "本系统为个人研究和复盘工具，所有内容仅用于信息整理、事件跟踪和模型验证。"
@@ -362,10 +405,14 @@ const routeApi = async (req, res, url) => {
 
   if (req.method === "GET" && url.pathname === "/api/watchlist") {
     return json(res, {
-      items: db.watchlistEntries.map((entry) => ({
-        ...entry,
-        performance: db.performanceTracking.find((item) => item.watchlistId === entry.id) || null
-      }))
+      items: buildWatchPoolItems(db)
+    });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/watch-pool/priority") {
+    return json(res, {
+      items: buildWatchPoolItems(db, { priorityOnly: true }),
+      disclaimer: "S/A级仅代表高优先级观察对象，不构成投资建议。"
     });
   }
 
@@ -463,11 +510,19 @@ const routeApi = async (req, res, url) => {
       .concat(filterOpportunities(db.scoredEvents, new URL("/api/opportunities?grade=A", "http://local")))
       .slice(0, 10)
       .map((item) => ({
+        stockCode: item.symbol,
         symbol: item.symbol,
         stockName: item.stockName,
+        market: item.market,
+        industry: item.industry,
         grade: item.grade,
         score: item.score,
+        triggerEvent: item.event,
         reason: item.reasons[0],
+        risks: item.risks.slice(0, 2),
+        followUpPoints: item.watchSignals.slice(0, 2),
+        isPriorityWatch: true,
+        poolStatus: "重点关注",
         url: `/opportunities/${item.id}`
       }));
     return json(res, {

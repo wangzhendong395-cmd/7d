@@ -18,6 +18,7 @@
       <nav>
         <button class="nav-item active" data-view="radar">7日机会榜</button>
         <button class="nav-item" data-view="ingest">事件录入</button>
+        <button class="nav-item" data-view="priorityWatch">重点关注池</button>
         <button class="nav-item" data-view="watchlist">观察池</button>
         <button class="nav-item" data-view="actions">个人动作</button>
         <button class="nav-item" data-view="review">复盘中心</button>
@@ -217,10 +218,34 @@
         <form id="performanceForm" class="inline-form">
           <input name="watchlistId" placeholder="观察池ID" required />
           <input name="t1" type="number" step="0.1" placeholder="T+1%" />
+          <input name="t3" type="number" step="0.1" placeholder="T+3%" />
+          <input name="t5" type="number" step="0.1" placeholder="T+5%" />
+          <input name="t10" type="number" step="0.1" placeholder="T+10%" />
+          <input name="t20" type="number" step="0.1" placeholder="T+20%" />
           <input name="relativeMarket" type="number" step="0.1" placeholder="相对大盘%" />
+          <input name="relativeIndustry" type="number" step="0.1" placeholder="相对行业%" />
           <input name="maxDrawdown" type="number" step="0.1" placeholder="最大回撤%" />
+          <input name="volumeChange" type="number" step="0.1" placeholder="成交量变化%" />
+          <select name="followupCatalyst">
+            <option value="false">无新催化</option>
+            <option value="true">出现新催化</option>
+          </select>
+          <select name="riskTriggered">
+            <option value="false">无风险反证</option>
+            <option value="true">触发风险反证</option>
+          </select>
+          <input name="verdict" placeholder="复盘结论，如 初步有效" />
+          <input name="review" placeholder="复盘备注" />
           <button class="secondary-btn" type="submit">更新验证</button>
         </form>
+      </section>
+
+      <section id="priorityWatch" class="view">
+        <div class="section-head">
+          <h2>重点关注池</h2>
+          <p>S/A级自动入池，用于跟踪后续走势、事件发酵、成交量变化和风险反证。</p>
+        </div>
+        <div id="priorityWatchTable" class="table-wrap"></div>
       </section>
 
       <section id="actions" class="view">

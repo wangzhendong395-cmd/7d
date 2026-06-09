@@ -85,6 +85,7 @@ const renderOpportunities = async () => {
             <span class="tag">${item.market === "US" ? "美股" : "港股"}</span>
             <span class="tag">${item.industry}</span>
             <span class="tag">${item.eventType}</span>
+            <span class="tag">${item.poolStatus}</span>
             ${item.eventCount > 1 ? `<span class="tag">近7天${item.eventCount}条事件</span>` : ""}
           </div>
           <p>${item.event}</p>
@@ -244,8 +245,15 @@ const renderWatchlist = async () => {
           <th>等级/分数</th>
           <th>事件类型</th>
           <th>T+1</th>
+          <th>T+3</th>
+          <th>T+5</th>
+          <th>T+10</th>
+          <th>T+20</th>
           <th>相对大盘</th>
+          <th>相对行业</th>
+          <th>成交量</th>
           <th>最大回撤</th>
+          <th>入池状态</th>
           <th>状态</th>
         </tr>
       </thead>
@@ -260,8 +268,15 @@ const renderWatchlist = async () => {
                 <td>${item.entryGrade} / ${item.entryScore}</td>
                 <td>${item.eventType}</td>
                 <td>${formatPct(item.performance?.t1)}</td>
+                <td>${formatPct(item.performance?.t3)}</td>
+                <td>${formatPct(item.performance?.t5)}</td>
+                <td>${formatPct(item.performance?.t10)}</td>
+                <td>${formatPct(item.performance?.t20)}</td>
                 <td>${formatPct(item.performance?.relativeMarket)}</td>
+                <td>${formatPct(item.performance?.relativeIndustry)}</td>
+                <td>${formatPct(item.performance?.volumeChange)}</td>
                 <td>${formatPct(item.performance?.maxDrawdown)}</td>
+                <td>${item.trackingStatus}</td>
                 <td>${item.status}</td>
               </tr>
             `
@@ -269,6 +284,73 @@ const renderWatchlist = async () => {
           .join("")}
       </tbody>
     </table>
+  `;
+};
+
+const renderPriorityWatch = async () => {
+  const data = await api("/api/watch-pool/priority");
+  $("#priorityWatchTable").innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>股票代码</th>
+          <th>股票名称</th>
+          <th>市场</th>
+          <th>入池日期</th>
+          <th>入池价格</th>
+          <th>入池评分</th>
+          <th>等级</th>
+          <th>触发事件</th>
+          <th>当前价格</th>
+          <th>T+1</th>
+          <th>T+3</th>
+          <th>T+5</th>
+          <th>T+10</th>
+          <th>T+20</th>
+          <th>相对大盘</th>
+          <th>相对行业</th>
+          <th>成交量变化</th>
+          <th>最新事件</th>
+          <th>风险反证</th>
+          <th>复盘结论</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${
+          data.items.length
+            ? data.items
+                .map(
+                  (item) => `
+                    <tr>
+                      <td><strong>${item.stockCode}</strong></td>
+                      <td>${item.stockName}</td>
+                      <td>${item.market === "US" ? "美股" : "港股"}</td>
+                      <td>${item.entryDate}</td>
+                      <td>${item.entryPrice ?? "-"}</td>
+                      <td>${item.entryScore}</td>
+                      <td>${item.entryLevel}</td>
+                      <td>${item.triggerEvent}</td>
+                      <td>${item.currentPrice ?? "-"}</td>
+                      <td>${formatPct(item.performance?.t1)}</td>
+                      <td>${formatPct(item.performance?.t3)}</td>
+                      <td>${formatPct(item.performance?.t5)}</td>
+                      <td>${formatPct(item.performance?.t10)}</td>
+                      <td>${formatPct(item.performance?.t20)}</td>
+                      <td>${formatPct(item.performance?.relativeMarket)}</td>
+                      <td>${formatPct(item.performance?.relativeIndustry)}</td>
+                      <td>${formatPct(item.performance?.volumeChange)}</td>
+                      <td>${item.latestEvent || "-"}</td>
+                      <td>${item.performance?.riskTriggered ? "已触发" : "未触发"}</td>
+                      <td>${item.performance?.verdict || item.status}</td>
+                    </tr>
+                  `
+                )
+                .join("")
+            : `<tr><td colspan="20" class="muted">暂无S/A级重点关注对象</td></tr>`
+        }
+      </tbody>
+    </table>
+    <p class="muted">${data.disclaimer}</p>
   `;
 };
 
@@ -434,18 +516,32 @@ const renderBrokerStatus = async () => {
 
 const renderReview = async () => {
   const data = await api("/api/reviews/weekly");
+  const formatRate = (value) => (value === null || value === undefined ? "-" : `${Math.round(value * 100)}%`);
   $("#reviewPanel").innerHTML = `
     <section class="panel">
       <h3>${data.week}</h3>
-      <p class="muted">本周入池 ${data.entryCount} 只</p>
+      <p class="muted">总入池 ${data.entryCount} 只，S/A重点关注 ${data.priorityEntryCount ?? "-"} 只</p>
+    </section>
+    <section class="panel">
+      <h3>S/A表现</h3>
+      <ul>
+        <li>S级均值：${formatPct(data.sAverageReturn)}</li>
+        <li>A级均值：${formatPct(data.aAverageReturn)}</li>
+        <li>跑赢大盘比例：${formatRate(data.marketWinRate)}</li>
+        <li>跑赢行业比例：${formatRate(data.industryWinRate)}</li>
+      </ul>
     </section>
     <section class="panel">
       <h3>等级表现</h3>
-      <ul>${data.gradePerformance.map((item) => `<li>${item.grade}：${item.count}只，T+1均值${formatPct(item.avgT1)}，${item.verdict}</li>`).join("")}</ul>
+      <ul>${data.gradePerformance.map((item) => `<li>${item.grade}：${item.count}只，跟踪均值${formatPct(item.avgReturn ?? item.avgT1)}，${item.verdict}</li>`).join("")}</ul>
     </section>
     <section class="panel">
       <h3>有效事件</h3>
       <p>${data.bestEventTypes.join("、")}</p>
+    </section>
+    <section class="panel">
+      <h3>高分失败</h3>
+      <p>${data.failedHighScoreCases?.length ? data.failedHighScoreCases.join("、") : "暂无"}</p>
     </section>
     <section class="panel">
       <h3>权重建议</h3>
@@ -557,7 +653,7 @@ const addToWatchlist = async (opportunityId) => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ opportunityId })
   });
-  await renderWatchlist();
+  await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist()]);
 };
 
 const recordPersonalAction = async (opportunityId, actionType = "重点跟踪") => {
@@ -624,15 +720,23 @@ const submitPerformance = async (formElement) => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       t1: numberOrNull(form.get("t1")),
+      t3: numberOrNull(form.get("t3")),
+      t5: numberOrNull(form.get("t5")),
+      t10: numberOrNull(form.get("t10")),
+      t20: numberOrNull(form.get("t20")),
       relativeMarket: numberOrNull(form.get("relativeMarket")),
+      relativeIndustry: numberOrNull(form.get("relativeIndustry")),
       maxDrawdown: numberOrNull(form.get("maxDrawdown")),
-      verdict: "内测手动更新",
-      review: "由内测页面手动录入。"
+      volumeChange: numberOrNull(form.get("volumeChange")),
+      followupCatalyst: form.get("followupCatalyst") === "true",
+      riskTriggered: form.get("riskTriggered") === "true",
+      verdict: form.get("verdict") || "内测手动更新",
+      review: form.get("review") || "由内测页面手动录入。"
     })
   });
   await api("/api/reviews/weekly/regenerate", { method: "POST" });
   formElement.reset();
-  await Promise.all([renderWatchlist(), renderReview()]);
+  await Promise.all([renderPriorityWatch(), renderWatchlist(), renderReview()]);
 };
 
 const collectDisclosures = async (markets) => {
@@ -645,7 +749,7 @@ const collectDisclosures = async (markets) => {
       body: JSON.stringify({ markets, days: 7 })
     });
     showToast(`采集完成：导入${result.run.imported}条，状态${result.run.status}`, "success");
-    await Promise.all([renderOpportunities(), renderIngestionRuns(), renderSystemStatus()]);
+    await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist(), renderIngestionRuns(), renderSystemStatus()]);
   } finally {
     buttons.forEach((button) => (button.disabled = false));
   }
@@ -661,7 +765,7 @@ const collectNews = async () => {
       body: JSON.stringify({ days: 7 })
     });
     showToast(`新闻采集完成：导入${result.run.imported}条，状态${result.run.status}`, result.errors.length ? "info" : "success");
-    await Promise.all([renderOpportunities(), renderIngestionRuns(), renderSystemStatus()]);
+    await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist(), renderIngestionRuns(), renderSystemStatus()]);
   } finally {
     button.disabled = false;
   }
@@ -673,7 +777,7 @@ const refreshMarketSnapshots = async () => {
   try {
     const result = await api("/api/market/refresh", { method: "POST" });
     showToast(`行情刷新完成：更新${result.imported}只，失败${result.failed}只`, result.failed ? "info" : "success");
-    await Promise.all([renderOpportunities(), renderSystemStatus()]);
+    await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist(), renderSystemStatus()]);
   } finally {
     button.disabled = false;
   }
@@ -927,6 +1031,7 @@ const bootstrap = async () => {
   await Promise.all([
     renderOpportunities(),
     renderSystemStatus(),
+    renderPriorityWatch(),
     renderWatchlist(),
     renderPersonalActions(),
     renderSourceConfig(),

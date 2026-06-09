@@ -128,6 +128,8 @@ test("manual event ingest, market snapshot, and review regeneration work", async
   const opportunities = await requestJson(baseUrl, "/api/opportunities?q=TEST");
   assert.equal(opportunities.body.items.length, 1);
   assert.ok(opportunities.body.items[0].score >= event.body.opportunity.score);
+  assert.equal(opportunities.body.items[0].stockCode, "TEST");
+  assert.equal(opportunities.body.items[0].poolStatus, "重点关注");
 
   const watch = await requestJson(baseUrl, "/api/watchlist", {
     method: "POST",
@@ -139,16 +141,36 @@ test("manual event ingest, market snapshot, and review regeneration work", async
   const performance = await requestJson(baseUrl, `/api/watchlist/${watch.body.id}/performance`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ t1: 2.4, relativeMarket: 1.1, maxDrawdown: -0.8, verdict: "初步有效" })
+    body: JSON.stringify({
+      t1: 2.4,
+      t3: 4.1,
+      t5: 5.2,
+      relativeMarket: 1.1,
+      relativeIndustry: 0.7,
+      maxDrawdown: -0.8,
+      volumeChange: 33,
+      followupCatalyst: true,
+      riskTriggered: false,
+      verdict: "初步有效"
+    })
   });
   assert.equal(performance.body.t1, 2.4);
+  assert.equal(performance.body.t5, 5.2);
+  assert.equal(performance.body.relativeIndustry, 0.7);
+
+  const priority = await requestJson(baseUrl, "/api/watch-pool/priority");
+  assert.equal(priority.response.status, 200);
+  assert.ok(priority.body.items.some((item) => item.stockCode === "TEST" && item.isPriorityWatch));
 
   const review = await requestJson(baseUrl, "/api/reviews/weekly/regenerate", { method: "POST" });
   assert.ok(review.body.entryCount >= 1);
+  assert.ok(review.body.priorityEntryCount >= 1);
+  assert.ok("marketWinRate" in review.body);
 
   const daily = await requestJson(baseUrl, "/api/feishu/daily-preview");
   assert.equal(daily.response.status, 200);
   assert.ok(Array.isArray(daily.body.items));
+  assert.ok(daily.body.items.every((item) => item.stockCode && item.poolStatus === "重点关注"));
 });
 
 test("official disclosure collection endpoint records ingestion run", async (t) => {

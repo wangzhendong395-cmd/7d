@@ -202,7 +202,7 @@ h2 {
 }
 
 .inline-form {
-  grid-template-columns: minmax(140px, 1fr) minmax(180px, 2fr) minmax(180px, 2fr) 130px 110px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
 }
 
 .event-form {

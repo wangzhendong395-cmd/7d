@@ -97,6 +97,70 @@ const defaultNewsFeeds = [
   }
 ];
 
+const isPriorityGrade = (grade) => ["S", "A"].includes(grade);
+const isAutoWatchGrade = (grade) => ["S", "A", "B"].includes(grade);
+const watchStatusForGrade = (grade) => (isPriorityGrade(grade) ? "重点关注" : "普通观察");
+
+const buildWatchEntryFromOpportunity = (opportunity, entryPrice = null, existing = null) => {
+  const now = new Date().toISOString();
+  const entryDate = existing?.entryDate || now.slice(0, 10);
+  const isPriorityWatch = isPriorityGrade(opportunity.grade);
+  const trackingStatus = watchStatusForGrade(opportunity.grade);
+
+  return {
+    ...(existing || {}),
+    id: existing?.id || `wl-${opportunity.symbol.toLowerCase().replace(".", "-")}-${opportunity.eventId || Date.now()}`,
+    opportunityId: opportunity.id,
+    symbol: opportunity.symbol,
+    stockCode: opportunity.symbol,
+    stockName: opportunity.stockName,
+    market: opportunity.market,
+    industry: opportunity.industry,
+    entryDate,
+    entryPrice: entryPrice ?? existing?.entryPrice ?? null,
+    entryScore: opportunity.score,
+    entryGrade: opportunity.grade,
+    entryLevel: opportunity.grade,
+    eventType: opportunity.eventType,
+    triggerEvent: opportunity.event,
+    entryReason: opportunity.reasons || [],
+    keyRisks: opportunity.risks || [],
+    followUpPoints: opportunity.watchSignals || [],
+    status: existing?.status || "待验证",
+    trackingStatus,
+    isPriorityWatch,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now
+  };
+};
+
+const normalizeWatchEntry = (entry) => ({
+  ...entry,
+  stockCode: entry.stockCode || entry.symbol,
+  entryLevel: entry.entryLevel || entry.entryGrade,
+  triggerEvent: entry.triggerEvent || entry.eventType,
+  entryReason: entry.entryReason || [],
+  keyRisks: entry.keyRisks || [],
+  followUpPoints: entry.followUpPoints || [],
+  trackingStatus: entry.trackingStatus || watchStatusForGrade(entry.entryGrade),
+  isPriorityWatch: entry.isPriorityWatch ?? isPriorityGrade(entry.entryGrade),
+  createdAt: entry.createdAt || `${entry.entryDate || new Date().toISOString().slice(0, 10)}T00:00:00.000Z`,
+  updatedAt: entry.updatedAt || new Date().toISOString()
+});
+
+const syncWatchPoolForOpportunities = (db, opportunities) => {
+  const synced = [];
+  opportunities.forEach((opportunity) => {
+    if (!opportunity || !isAutoWatchGrade(opportunity.grade)) return;
+    const existing = db.watchlistEntries.find((item) => item.opportunityId === opportunity.id);
+    const entry = buildWatchEntryFromOpportunity(opportunity, existing?.entryPrice ?? null, existing);
+    if (existing) Object.assign(existing, entry);
+    else db.watchlistEntries.push(entry);
+    synced.push(entry);
+  });
+  return synced;
+};
+
 const migrateDataSourceCoverage = (db) => {
   const hasTechFocus = db.customIndustries?.some((item) => item.id === defaultTechFocusIndustry.id);
   if (db.sourceCoverageVersion === sourceCoverageVersion && hasTechFocus) return db;
@@ -117,7 +181,7 @@ const ensureShape = (db) => ({
     ...db,
     rawEvents: db.rawEvents || [],
     scoredEvents: db.scoredEvents || [],
-    watchlistEntries: db.watchlistEntries || [],
+    watchlistEntries: (db.watchlistEntries || []).map(normalizeWatchEntry),
     performanceTracking: db.performanceTracking || [],
     customIndustries: db.customIndustries || [],
     weeklyReview: db.weeklyReview || weeklyReview,
@@ -164,6 +228,7 @@ export const addEventAndScore = async (payload) => {
   const opportunity = buildOpportunityFromEvent(event, db);
   db.scoredEvents = db.scoredEvents.filter((item) => item.eventId !== event.id);
   db.scoredEvents.push(opportunity);
+  syncWatchPoolForOpportunities(db, [opportunity]);
   db.ingestionRuns.push({
     id: `run-${Date.now()}`,
     type: "manual-event",
@@ -193,6 +258,11 @@ export const addEventsAndScore = async (payloads) => {
     db.scoredEvents.push(opportunity);
     results.push({ event, opportunity });
   }
+
+  syncWatchPoolForOpportunities(
+    db,
+    results.filter((item) => item.opportunity).map((item) => item.opportunity)
+  );
 
   db.ingestionRuns.push({
     id: `run-${Date.now()}`,
@@ -239,6 +309,7 @@ export const addMarketSnapshot = async (payload) => {
     const event = db.rawEvents.find((item) => item.id === opportunity.eventId);
     return event ? buildOpportunityFromEvent(event, db) : opportunity;
   });
+  syncWatchPoolForOpportunities(db, db.scoredEvents.filter((item) => item.symbol === snapshot.symbol));
   await writeDb(db);
   return snapshot;
 };
@@ -319,6 +390,7 @@ export const addMarketSnapshots = async (payloads) => {
     const event = db.rawEvents.find((item) => item.id === opportunity.eventId);
     return event ? buildOpportunityFromEvent(event, db) : opportunity;
   });
+  syncWatchPoolForOpportunities(db, db.scoredEvents.filter((item) => changedSymbols.has(item.symbol)));
 
   if (snapshots.length) {
     db.ingestionRuns.push({
@@ -397,26 +469,33 @@ export const updatePerformance = async (watchlistId, payload) => {
 export const regenerateWeeklyReview = async () => {
   const db = await readDb();
   const entries = db.watchlistEntries;
+  const priorityEntries = entries.filter((item) => item.isPriorityWatch);
   const performanceById = new Map(db.performanceTracking.map((item) => [item.watchlistId, item]));
+  const latestTrackedReturn = (perf) => [perf?.t20, perf?.t10, perf?.t5, perf?.t3, perf?.t1].find((value) => Number.isFinite(value));
+  const average = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null);
+  const winRate = (values) => (values.length ? values.filter((value) => Number.isFinite(value) && value > 0).length / values.length : null);
+
   const grades = ["S", "A", "B", "C", "D"].map((grade) => {
     const gradeEntries = entries.filter((item) => item.entryGrade === grade);
     const values = gradeEntries
-      .map((item) => performanceById.get(item.id)?.t1)
+      .map((item) => latestTrackedReturn(performanceById.get(item.id)))
       .filter((value) => Number.isFinite(value));
-    const avgT1 = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+    const avgReturn = average(values);
     return {
       grade,
       count: gradeEntries.length,
-      avgT1,
-      verdict: avgT1 === null ? "样本不足" : avgT1 > 0 ? "初步有效" : "待确认"
+      avgT1: avgReturn,
+      avgReturn,
+      verdict: avgReturn === null ? "样本不足" : avgReturn > 0 ? "初步有效" : "待确认"
     };
   });
 
   const eventStats = entries.reduce((acc, entry) => {
     const perf = performanceById.get(entry.id);
-    if (!perf || !Number.isFinite(perf.t1)) return acc;
+    const trackedReturn = latestTrackedReturn(perf);
+    if (!Number.isFinite(trackedReturn)) return acc;
     acc[entry.eventType] ||= [];
-    acc[entry.eventType].push(perf.t1);
+    acc[entry.eventType].push(trackedReturn);
     return acc;
   }, {});
   const rankedEvents = Object.entries(eventStats)
@@ -426,18 +505,50 @@ export const regenerateWeeklyReview = async () => {
     }))
     .sort((a, b) => b.avg - a.avg);
 
+  const priorityPerformance = priorityEntries.map((entry) => ({
+    entry,
+    perf: performanceById.get(entry.id),
+    trackedReturn: latestTrackedReturn(performanceById.get(entry.id))
+  }));
+  const priorityReturns = priorityPerformance.map((item) => item.trackedReturn).filter((value) => Number.isFinite(value));
+  const sReturns = priorityPerformance
+    .filter((item) => item.entry.entryGrade === "S")
+    .map((item) => item.trackedReturn)
+    .filter((value) => Number.isFinite(value));
+  const aReturns = priorityPerformance
+    .filter((item) => item.entry.entryGrade === "A")
+    .map((item) => item.trackedReturn)
+    .filter((value) => Number.isFinite(value));
+  const relativeMarketValues = priorityPerformance
+    .map((item) => item.perf?.relativeMarket)
+    .filter((value) => Number.isFinite(value));
+  const relativeIndustryValues = priorityPerformance
+    .map((item) => item.perf?.relativeIndustry)
+    .filter((value) => Number.isFinite(value));
+  const failedHighScoreCases = priorityPerformance
+    .filter((item) => item.entry.entryScore >= 85 && Number.isFinite(item.trackedReturn) && item.trackedReturn < 0)
+    .slice(0, 3)
+    .map((item) => `${item.entry.symbol} ${item.entry.eventType}`);
+
   db.weeklyReview = {
     id: `review-${new Date().toISOString().slice(0, 10)}`,
     week: new Date().toISOString().slice(0, 10),
     entryCount: entries.length,
+    priorityEntryCount: priorityEntries.length,
+    sAverageReturn: average(sReturns),
+    aAverageReturn: average(aReturns),
+    priorityAverageReturn: average(priorityReturns),
+    marketWinRate: winRate(relativeMarketValues),
+    industryWinRate: winRate(relativeIndustryValues),
     gradePerformance: grades,
     bestEventTypes: rankedEvents.slice(0, 2).map((item) => item.eventType),
     weakestEventTypes: rankedEvents.slice(-2).map((item) => item.eventType),
     effectiveDimensions: ["事件强度", "预期差", "市场验证"],
-    failedHighScoreCases: [],
+    failedHighScoreCases,
     lowScoreWinners: [],
     weightSuggestions: [
       rankedEvents.length ? "优先复核表现分化最大的事件类型。" : "样本不足，暂不建议调整权重。",
+      failedHighScoreCases.length ? "高分失败样本出现，建议提高风险反证和追高风险复核权重。" : "暂无明显高分失败样本。",
       "保持用户确认后再更新模型权重。"
     ]
   };
@@ -595,24 +706,10 @@ export const addWatchlistEntry = async ({ opportunityId, entryPrice = null }) =>
   if (!opportunity) return null;
 
   const existing = db.watchlistEntries.find((item) => item.opportunityId === opportunity.id);
-  if (existing) return existing;
+  const entry = buildWatchEntryFromOpportunity(opportunity, entryPrice, existing);
 
-  const entry = {
-    id: `wl-${opportunity.symbol.toLowerCase().replace(".", "-")}-${Date.now()}`,
-    opportunityId: opportunity.id,
-    symbol: opportunity.symbol,
-    stockName: opportunity.stockName,
-    market: opportunity.market,
-    industry: opportunity.industry,
-    entryDate: new Date().toISOString().slice(0, 10),
-    entryPrice,
-    entryScore: opportunity.score,
-    entryGrade: opportunity.grade,
-    eventType: opportunity.eventType,
-    status: "待验证"
-  };
-
-  db.watchlistEntries.push(entry);
+  if (existing) Object.assign(existing, entry);
+  else db.watchlistEntries.push(entry);
   await writeDb(db);
   return entry;
 };
