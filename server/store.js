@@ -246,11 +246,12 @@ const buildModelSuggestionFromReview = (db, review, context) => {
   if (!hasEnoughSamples) return null;
 
   const hasHighScoreFailures = review.failedHighScoreCases.length > 0;
+  const hasLowScoreWinners = review.lowScoreWinners.length > 0;
   const weakMarketValidation = Number(review.marketWinRate ?? 1) < 0.5;
   const weakIndustryValidation = Number(review.industryWinRate ?? 1) < 0.5;
   const strongPriorityResult = Number(review.priorityAverageReturn ?? 0) > 0 && Number(review.marketWinRate ?? 0) >= 0.5;
 
-  if (!hasHighScoreFailures && !weakMarketValidation && !weakIndustryValidation && !strongPriorityResult) return null;
+  if (!hasHighScoreFailures && !hasLowScoreWinners && !weakMarketValidation && !weakIndustryValidation && !strongPriorityResult) return null;
 
   let suggestedWeights = { ...current };
   let reason = "重点关注池复盘建议微调模型权重。";
@@ -266,6 +267,15 @@ const buildModelSuggestionFromReview = (db, review, context) => {
     reason = hasHighScoreFailures
       ? "高分失败样本出现，建议提高市场验证和风险反证权重。"
       : "S/A样本跑赢大盘比例偏低，建议提高市场验证权重。";
+  } else if (hasLowScoreWinners) {
+    suggestedWeights = {
+      ...suggestedWeights,
+      expectationGap: Number(suggestedWeights.expectationGap || 0) + 1,
+      trendFit: Number(suggestedWeights.trendFit || 0) + 1,
+      valuationSupport: Number(suggestedWeights.valuationSupport || 0) - 1,
+      eventStrength: Number(suggestedWeights.eventStrength || 0) - 1
+    };
+    reason = "低分走强样本出现，建议提高预期差和产业趋势识别权重。";
   } else if (weakIndustryValidation) {
     suggestedWeights = {
       ...suggestedWeights,
@@ -295,8 +305,10 @@ const buildModelSuggestionFromReview = (db, review, context) => {
       marketWinRate: review.marketWinRate,
       industryWinRate: review.industryWinRate,
       failedHighScoreCases: review.failedHighScoreCases,
+      lowScoreWinners: review.lowScoreWinners,
       bestEventTypes: review.bestEventTypes,
       weakestEventTypes: review.weakestEventTypes,
+      industryStats: review.industryStats,
       sampleSize: context.priorityPerformance.length
     },
     suggestedWeights: normalizeWeights(suggestedWeights)
@@ -653,15 +665,17 @@ export const regenerateWeeklyReview = async () => {
   const rankedEvents = Object.entries(eventStats)
     .map(([eventType, values]) => ({
       eventType,
+      count: values.length,
       avg: values.reduce((sum, value) => sum + value, 0) / values.length
     }))
     .sort((a, b) => b.avg - a.avg);
 
-  const priorityPerformance = priorityEntries.map((entry) => ({
+  const trackedEntries = entries.map((entry) => ({
     entry,
     perf: performanceById.get(entry.id),
     trackedReturn: latestTrackedReturn(performanceById.get(entry.id))
   }));
+  const priorityPerformance = trackedEntries.filter((item) => item.entry.isPriorityWatch);
   const priorityReturns = priorityPerformance.map((item) => item.trackedReturn).filter((value) => Number.isFinite(value));
   const sReturns = priorityPerformance
     .filter((item) => item.entry.entryGrade === "S")
@@ -681,6 +695,29 @@ export const regenerateWeeklyReview = async () => {
     .filter((item) => item.entry.entryScore >= 85 && Number.isFinite(item.trackedReturn) && item.trackedReturn < 0)
     .slice(0, 3)
     .map((item) => `${item.entry.symbol} ${item.entry.eventType}`);
+  const lowScoreWinners = trackedEntries
+    .filter((item) => item.entry.entryScore < 75 && Number.isFinite(item.trackedReturn) && item.trackedReturn > 3)
+    .sort((a, b) => b.trackedReturn - a.trackedReturn)
+    .slice(0, 3)
+    .map((item) => `${item.entry.symbol} ${item.entry.eventType} ${item.trackedReturn.toFixed(1)}%`);
+  const industryStats = Object.values(
+    trackedEntries.reduce((acc, item) => {
+      if (!Number.isFinite(item.trackedReturn)) return acc;
+      const key = item.entry.industry || "未分类";
+      acc[key] ||= { industry: key, count: 0, avgReturn: 0, winCount: 0 };
+      acc[key].count += 1;
+      acc[key].avgReturn += item.trackedReturn;
+      if (item.trackedReturn > 0) acc[key].winCount += 1;
+      return acc;
+    }, {})
+  )
+    .map((item) => ({
+      ...item,
+      avgReturn: item.avgReturn / item.count,
+      winRate: item.count ? item.winCount / item.count : null
+    }))
+    .sort((a, b) => b.avgReturn - a.avgReturn)
+    .slice(0, 6);
 
   db.weeklyReview = {
     id: `review-${new Date().toISOString().slice(0, 10)}`,
@@ -693,14 +730,17 @@ export const regenerateWeeklyReview = async () => {
     marketWinRate: winRate(relativeMarketValues),
     industryWinRate: winRate(relativeIndustryValues),
     gradePerformance: grades,
+    eventTypeStats: rankedEvents,
+    industryStats,
     bestEventTypes: rankedEvents.slice(0, 2).map((item) => item.eventType),
     weakestEventTypes: rankedEvents.slice(-2).map((item) => item.eventType),
     effectiveDimensions: ["事件强度", "预期差", "市场验证"],
     failedHighScoreCases,
-    lowScoreWinners: [],
+    lowScoreWinners,
     weightSuggestions: [
       rankedEvents.length ? "优先复核表现分化最大的事件类型。" : "样本不足，暂不建议调整权重。",
       failedHighScoreCases.length ? "高分失败样本出现，建议提高风险反证和追高风险复核权重。" : "暂无明显高分失败样本。",
+      lowScoreWinners.length ? "低分走强样本出现，建议复核预期差或行业趋势识别是否偏保守。" : "暂无明显低分走强遗漏样本。",
       "保持用户确认后再更新模型权重。"
     ]
   };

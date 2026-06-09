@@ -163,6 +163,36 @@ test("manual event ingest, market snapshot, and review regeneration work", async
   assert.equal(performance.body.relativeIndustry, 0.7);
   assert.equal(performance.body.stockCode, "TEST");
 
+  const sleeperEvent = await requestJson(baseUrl, "/api/events", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      symbol: "SLEEP",
+      stockName: "Sleeper Corp",
+      market: "US",
+      industry: "光通信",
+      eventType: "行业主题升温",
+      sourceCredibility: "C",
+      title: "Sleeper Corp appears in optical networking theme",
+      summary: "行业主题升温但公司层面催化仍需确认。"
+    })
+  });
+  assert.equal(sleeperEvent.response.status, 201);
+
+  const sleeperOpportunities = await requestJson(baseUrl, "/api/opportunities?q=SLEEP");
+  assert.equal(sleeperOpportunities.body.items[0].poolStatus, "普通观察");
+  const sleeperWatch = await requestJson(baseUrl, "/api/watchlist", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ opportunityId: sleeperOpportunities.body.items[0].id, entryPrice: 10 })
+  });
+  assert.equal(sleeperWatch.response.status, 201);
+  await requestJson(baseUrl, `/api/watchlist/${sleeperWatch.body.id}/performance`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ t3: 6.5, relativeMarket: 4.2, relativeIndustry: 3.1, verdict: "低分走强" })
+  });
+
   const autoTracked = await requestJson(baseUrl, "/api/market-snapshots", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -191,12 +221,15 @@ test("manual event ingest, market snapshot, and review regeneration work", async
   assert.ok(review.body.entryCount >= 1);
   assert.ok(review.body.priorityEntryCount >= 1);
   assert.ok("marketWinRate" in review.body);
+  assert.ok(review.body.lowScoreWinners.some((item) => item.includes("SLEEP")));
+  assert.ok(review.body.industryStats.some((item) => item.industry === "光通信"));
   assert.ok(review.body.modelSuggestionId);
 
   const model = await requestJson(baseUrl, "/api/model/config");
   const suggestion = model.body.suggestions.find((item) => item.id === review.body.modelSuggestionId);
   assert.equal(suggestion.status, "pending");
   assert.ok(suggestion.evidence.priorityEntryCount >= 1);
+  assert.ok(suggestion.evidence.lowScoreWinners.some((item) => item.includes("SLEEP")));
 
   const confirmed = await requestJson(baseUrl, `/api/model/suggestions/${suggestion.id}/confirm`, { method: "POST" });
   assert.equal(confirmed.response.status, 200);

@@ -540,8 +540,20 @@ const renderReview = async () => {
       <p>${data.bestEventTypes.join("、")}</p>
     </section>
     <section class="panel">
+      <h3>行业质量</h3>
+      <ul>${
+        data.industryStats?.length
+          ? data.industryStats.map((item) => `<li>${item.industry}：${item.count}只，均值${formatPct(item.avgReturn)}，胜率${formatRate(item.winRate)}</li>`).join("")
+          : "<li>样本不足</li>"
+      }</ul>
+    </section>
+    <section class="panel">
       <h3>高分失败</h3>
       <p>${data.failedHighScoreCases?.length ? data.failedHighScoreCases.join("、") : "暂无"}</p>
+    </section>
+    <section class="panel">
+      <h3>低分走强</h3>
+      <p>${data.lowScoreWinners?.length ? data.lowScoreWinners.join("、") : "暂无"}</p>
     </section>
     <section class="panel">
       <h3>权重建议</h3>
@@ -612,7 +624,9 @@ const renderModel = async () => {
   const formatRate = (value) => (value === null || value === undefined ? "-" : `${Math.round(value * 100)}%`);
   const evidenceText = (item) => {
     if (!item.evidence) return "";
-    return `样本${item.evidence.sampleSize ?? item.evidence.priorityEntryCount ?? "-"}｜重点均值${formatPct(item.evidence.priorityAverageReturn)}｜跑赢大盘${formatRate(item.evidence.marketWinRate)}｜跑赢行业${formatRate(item.evidence.industryWinRate)}`;
+    const lowScore = item.evidence.lowScoreWinners?.length ? `｜低分走强${item.evidence.lowScoreWinners.length}` : "";
+    const topIndustry = item.evidence.industryStats?.[0]?.industry ? `｜最强行业${item.evidence.industryStats[0].industry}` : "";
+    return `样本${item.evidence.sampleSize ?? item.evidence.priorityEntryCount ?? "-"}｜重点均值${formatPct(item.evidence.priorityAverageReturn)}｜跑赢大盘${formatRate(item.evidence.marketWinRate)}｜跑赢行业${formatRate(item.evidence.industryWinRate)}${lowScore}${topIndustry}`;
   };
   const weights = Object.entries(data.weights)
     .map(
