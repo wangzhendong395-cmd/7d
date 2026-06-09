@@ -118,17 +118,17 @@ const buildWatchEntryFromOpportunity = (opportunity, entryPrice = null, existing
     industry: opportunity.industry,
     entryDate,
     entryPrice: entryPrice ?? existing?.entryPrice ?? null,
-    entryScore: opportunity.score,
-    entryGrade: opportunity.grade,
-    entryLevel: opportunity.grade,
+    entryScore: existing?.entryScore ?? opportunity.score,
+    entryGrade: existing?.entryGrade ?? opportunity.grade,
+    entryLevel: existing?.entryLevel ?? opportunity.grade,
     eventType: opportunity.eventType,
-    triggerEvent: opportunity.event,
-    entryReason: opportunity.reasons || [],
-    keyRisks: opportunity.risks || [],
-    followUpPoints: opportunity.watchSignals || [],
+    triggerEvent: existing?.triggerEvent ?? opportunity.event,
+    entryReason: existing?.entryReason ?? opportunity.reasons ?? [],
+    keyRisks: existing?.keyRisks ?? opportunity.risks ?? [],
+    followUpPoints: existing?.followUpPoints ?? opportunity.watchSignals ?? [],
     status: existing?.status || "待验证",
-    trackingStatus,
-    isPriorityWatch,
+    trackingStatus: existing?.trackingStatus ?? trackingStatus,
+    isPriorityWatch: existing?.isPriorityWatch ?? isPriorityWatch,
     createdAt: existing?.createdAt || now,
     updatedAt: now
   };
@@ -228,6 +228,79 @@ const syncPerformanceFromSnapshots = (db, snapshots) => {
     });
   });
   return synced;
+};
+
+const normalizeWeights = (weights) => {
+  const total = Object.values(weights).reduce((sum, value) => sum + Number(value || 0), 0);
+  if (total === 100) return weights;
+  const diff = 100 - total;
+  return {
+    ...weights,
+    eventStrength: Math.max(0, Number(weights.eventStrength || 0) + diff)
+  };
+};
+
+const buildModelSuggestionFromReview = (db, review, context) => {
+  const current = db.modelVersion.weights;
+  const hasEnoughSamples = Number(review.priorityEntryCount || 0) >= 2;
+  if (!hasEnoughSamples) return null;
+
+  const hasHighScoreFailures = review.failedHighScoreCases.length > 0;
+  const weakMarketValidation = Number(review.marketWinRate ?? 1) < 0.5;
+  const weakIndustryValidation = Number(review.industryWinRate ?? 1) < 0.5;
+  const strongPriorityResult = Number(review.priorityAverageReturn ?? 0) > 0 && Number(review.marketWinRate ?? 0) >= 0.5;
+
+  if (!hasHighScoreFailures && !weakMarketValidation && !weakIndustryValidation && !strongPriorityResult) return null;
+
+  let suggestedWeights = { ...current };
+  let reason = "重点关注池复盘建议微调模型权重。";
+
+  if (hasHighScoreFailures || weakMarketValidation) {
+    suggestedWeights = {
+      ...suggestedWeights,
+      marketValidation: Number(suggestedWeights.marketValidation || 0) + 2,
+      riskCounter: Number(suggestedWeights.riskCounter || 0) + 1,
+      eventStrength: Number(suggestedWeights.eventStrength || 0) - 2,
+      trendFit: Number(suggestedWeights.trendFit || 0) - 1
+    };
+    reason = hasHighScoreFailures
+      ? "高分失败样本出现，建议提高市场验证和风险反证权重。"
+      : "S/A样本跑赢大盘比例偏低，建议提高市场验证权重。";
+  } else if (weakIndustryValidation) {
+    suggestedWeights = {
+      ...suggestedWeights,
+      trendFit: Number(suggestedWeights.trendFit || 0) - 1,
+      marketValidation: Number(suggestedWeights.marketValidation || 0) + 1
+    };
+    reason = "跑赢行业比例偏低，建议降低行业匹配加分、提高市场验证。";
+  } else if (strongPriorityResult) {
+    suggestedWeights = {
+      ...suggestedWeights,
+      expectationGap: Number(suggestedWeights.expectationGap || 0) + 1,
+      catalystCertainty: Number(suggestedWeights.catalystCertainty || 0) + 1,
+      valuationSupport: Number(suggestedWeights.valuationSupport || 0) - 1,
+      eventStrength: Number(suggestedWeights.eventStrength || 0) - 1
+    };
+    reason = "S/A样本初步跑赢，建议小幅强化预期差和催化剂权重。";
+  }
+
+  return {
+    id: `ms-review-${review.week}`,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+    reason,
+    evidence: {
+      priorityEntryCount: review.priorityEntryCount,
+      priorityAverageReturn: review.priorityAverageReturn,
+      marketWinRate: review.marketWinRate,
+      industryWinRate: review.industryWinRate,
+      failedHighScoreCases: review.failedHighScoreCases,
+      bestEventTypes: review.bestEventTypes,
+      weakestEventTypes: review.weakestEventTypes,
+      sampleSize: context.priorityPerformance.length
+    },
+    suggestedWeights: normalizeWeights(suggestedWeights)
+  };
 };
 
 const migrateDataSourceCoverage = (db) => {
@@ -631,6 +704,13 @@ export const regenerateWeeklyReview = async () => {
       "保持用户确认后再更新模型权重。"
     ]
   };
+  const modelSuggestion = buildModelSuggestionFromReview(db, db.weeklyReview, { priorityPerformance });
+  if (modelSuggestion) {
+    const existing = db.modelSuggestions.find((item) => item.id === modelSuggestion.id);
+    if (!existing) db.modelSuggestions.push(modelSuggestion);
+    else if (existing.status === "pending") Object.assign(existing, modelSuggestion);
+    db.weeklyReview.modelSuggestionId = modelSuggestion.id;
+  }
   await writeDb(db);
   return db.weeklyReview;
 };

@@ -168,9 +168,9 @@ test("manual event ingest, market snapshot, and review regeneration work", async
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       symbol: "TEST",
-      price: 13.53,
-      changePct: 3.1,
-      relativeMarketPct: 1.9,
+      price: 11.07,
+      changePct: -3.1,
+      relativeMarketPct: -1.9,
       relativeIndustryPct: 1.2,
       volumeRatio: 1.5,
       capturedAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
@@ -183,14 +183,24 @@ test("manual event ingest, market snapshot, and review regeneration work", async
   assert.equal(priority.response.status, 200);
   assert.ok(priority.body.items.some((item) => item.stockCode === "TEST" && item.isPriorityWatch));
   const testPriority = priority.body.items.find((item) => item.stockCode === "TEST");
-  assert.equal(testPriority.performance.t3, 10);
-  assert.equal(testPriority.performance.relativeMarket, 1.9);
+  assert.equal(testPriority.performance.t3, -10);
+  assert.equal(testPriority.performance.relativeMarket, -1.9);
   assert.equal(testPriority.performance.volumeChange, 50);
 
   const review = await requestJson(baseUrl, "/api/reviews/weekly/regenerate", { method: "POST" });
   assert.ok(review.body.entryCount >= 1);
   assert.ok(review.body.priorityEntryCount >= 1);
   assert.ok("marketWinRate" in review.body);
+  assert.ok(review.body.modelSuggestionId);
+
+  const model = await requestJson(baseUrl, "/api/model/config");
+  const suggestion = model.body.suggestions.find((item) => item.id === review.body.modelSuggestionId);
+  assert.equal(suggestion.status, "pending");
+  assert.ok(suggestion.evidence.priorityEntryCount >= 1);
+
+  const confirmed = await requestJson(baseUrl, `/api/model/suggestions/${suggestion.id}/confirm`, { method: "POST" });
+  assert.equal(confirmed.response.status, 200);
+  assert.equal(confirmed.body.suggestion.status, "confirmed");
 
   const daily = await requestJson(baseUrl, "/api/feishu/daily-preview");
   assert.equal(daily.response.status, 200);

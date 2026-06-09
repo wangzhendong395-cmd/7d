@@ -546,6 +546,7 @@ const renderReview = async () => {
     <section class="panel">
       <h3>权重建议</h3>
       <ul>${data.weightSuggestions.map((item) => `<li>${item}</li>`).join("")}</ul>
+      ${data.modelSuggestionId ? `<p class="muted">已生成待确认模型建议：${data.modelSuggestionId}</p>` : ""}
     </section>
   `;
 };
@@ -608,6 +609,11 @@ const editIndustry = (id) => {
 
 const renderModel = async () => {
   const data = await api("/api/model/config");
+  const formatRate = (value) => (value === null || value === undefined ? "-" : `${Math.round(value * 100)}%`);
+  const evidenceText = (item) => {
+    if (!item.evidence) return "";
+    return `样本${item.evidence.sampleSize ?? item.evidence.priorityEntryCount ?? "-"}｜重点均值${formatPct(item.evidence.priorityAverageReturn)}｜跑赢大盘${formatRate(item.evidence.marketWinRate)}｜跑赢行业${formatRate(item.evidence.industryWinRate)}`;
+  };
   const weights = Object.entries(data.weights)
     .map(
       ([key, value]) => `
@@ -629,6 +635,7 @@ const renderModel = async () => {
           <div>
             <strong>${item.status === "confirmed" ? "已确认建议" : "待确认建议"}</strong>
             <p class="muted">${item.reason}</p>
+            ${evidenceText(item) ? `<p class="muted">${evidenceText(item)}</p>` : ""}
           </div>
           ${
             item.status === "pending"
