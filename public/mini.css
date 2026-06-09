@@ -1,0 +1,160 @@
+:root {
+  --bg: #f5f7f8;
+  --card: #ffffff;
+  --ink: #15201d;
+  --muted: #6b7673;
+  --line: #dbe3e0;
+  --green: #0f8b6f;
+  --amber: #b7791f;
+  --red: #bd3b36;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+}
+
+.mini {
+  width: min(100%, 520px);
+  margin: 0 auto;
+  padding: 18px 14px 32px;
+}
+
+header,
+.search,
+.card,
+.detail,
+.summary-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+}
+
+header p,
+header h1 {
+  margin: 0;
+}
+
+header p,
+.muted {
+  color: var(--muted);
+}
+
+button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #fff;
+  background: #173b35;
+  font: inherit;
+}
+
+.search {
+  display: grid;
+  grid-template-columns: 1fr 74px;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 10px;
+}
+
+input {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  font: inherit;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.summary-item {
+  padding: 12px;
+}
+
+.summary-item strong {
+  display: block;
+  font-size: 22px;
+}
+
+.cards {
+  display: grid;
+  gap: 10px;
+}
+
+.card,
+.detail {
+  padding: 14px;
+}
+
+.card-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.symbol {
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.grade {
+  min-width: 54px;
+  padding: 8px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--green);
+  text-align: center;
+}
+
+.grade-B {
+  background: var(--amber);
+}
+
+.grade-C,
+.grade-D {
+  background: var(--red);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.tag {
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: #edf2f2;
+  color: #25413b;
+  font-size: 12px;
+}
+
+ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.detail {
+  margin-top: 12px;
+}

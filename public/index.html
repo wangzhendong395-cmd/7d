@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>港美股7日事件机会雷达</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">7D</span>
+        <div>
+          <strong>事件机会雷达</strong>
+          <small>港美股个人研究</small>
+        </div>
+      </div>
+      <nav>
+        <button class="nav-item active" data-view="radar">7日机会榜</button>
+        <button class="nav-item" data-view="ingest">事件录入</button>
+        <button class="nav-item" data-view="watchlist">观察池</button>
+        <button class="nav-item" data-view="actions">个人动作</button>
+        <button class="nav-item" data-view="review">复盘中心</button>
+        <button class="nav-item" data-view="industries">自定义行业</button>
+        <button class="nav-item" data-view="model">模型配置</button>
+      </nav>
+    </aside>
+
+    <main class="app">
+      <header class="topbar">
+        <div>
+          <h1>7日信息增量雷达</h1>
+          <p>聚焦预期差、催化剂、市场验证和走势校验。</p>
+        </div>
+        <div class="top-actions">
+          <button id="backupButton" class="secondary-btn" type="button">备份数据</button>
+          <div id="systemStatus" class="today">加载中</div>
+        </div>
+      </header>
+      <div id="toast" class="toast" hidden></div>
+
+      <section id="radar" class="view active">
+        <div id="summaryStrip" class="summary-strip"></div>
+        <div class="toolbar">
+          <input id="searchInput" type="search" placeholder="搜索股票、事件、行业" />
+          <select id="marketFilter">
+            <option value="">全部市场</option>
+            <option value="US">美股</option>
+            <option value="HK">港股</option>
+          </select>
+          <select id="gradeFilter">
+            <option value="">全部等级</option>
+            <option value="S">S</option>
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+            <option value="D">D</option>
+          </select>
+        </div>
+        <div id="opportunityGrid" class="opportunity-grid"></div>
+      </section>
+
+      <section id="ingest" class="view">
+        <div class="section-head">
+          <h2>事件录入台</h2>
+          <p>内测期可手动录入公告、新闻、财报、行情快照，系统会自动生成事件卡和评分。</p>
+        </div>
+        <form id="eventForm" class="event-form">
+          <input name="symbol" placeholder="股票代码，如 NVDA" required />
+          <input name="stockName" placeholder="股票名称" required />
+          <select name="market">
+            <option value="US">美股</option>
+            <option value="HK">港股</option>
+          </select>
+          <input name="industry" placeholder="行业" />
+          <select name="eventType">
+            <option value="财报超预期">财报超预期</option>
+            <option value="指引上调">指引上调</option>
+            <option value="订单/合作">订单/合作</option>
+            <option value="产品发布">产品发布</option>
+            <option value="监管审批">监管审批</option>
+            <option value="股票回购">股票回购</option>
+            <option value="行业主题升温">行业主题升温</option>
+            <option value="空头回补可能">空头回补可能</option>
+            <option value="业绩下修">业绩下修</option>
+            <option value="监管调查">监管调查</option>
+            <option value="融资摊薄">融资摊薄</option>
+          </select>
+          <select name="sourceCredibility">
+            <option value="A">A级来源</option>
+            <option value="B" selected>B级来源</option>
+            <option value="C">C级来源</option>
+            <option value="D">D级来源</option>
+          </select>
+          <input name="source" placeholder="来源，如 SEC / HKEX / 媒体" />
+          <input name="catalystDate" placeholder="催化日期，可选" />
+          <textarea name="title" placeholder="事件标题" required></textarea>
+          <textarea name="summary" placeholder="一句话核心事件" required></textarea>
+          <input name="followupSignals" placeholder="后续观察信号，用逗号分隔" />
+          <button class="primary-btn" type="submit">生成事件卡</button>
+        </form>
+
+        <form id="marketForm" class="inline-form">
+          <input name="symbol" placeholder="股票代码" required />
+          <input name="price" type="number" step="0.01" placeholder="当前价格" />
+          <input name="changePct" type="number" step="0.1" placeholder="涨跌幅%" />
+          <input name="relativeMarketPct" type="number" step="0.1" placeholder="相对大盘%" />
+          <input name="volumeRatio" type="number" step="0.1" placeholder="量比" />
+          <button class="secondary-btn" type="submit">更新行情快照</button>
+        </form>
+        <div class="source-panel">
+          <div>
+            <h3>券商开放 API</h3>
+            <p id="brokerStatus" class="muted">检查配置中</p>
+          </div>
+          <div class="source-actions">
+            <button id="futuTestButton" class="secondary-btn" type="button">测试富途 OpenD</button>
+            <button id="tigerTestButton" class="secondary-btn" type="button">测试老虎配置</button>
+            <button id="ibkrTestButton" class="secondary-btn" type="button">测试 IBKR</button>
+            <button id="chiefTestButton" class="secondary-btn" type="button">检查致富证券</button>
+          </div>
+        </div>
+        <form id="brokerConfigForm" class="event-form compact-form">
+          <label class="check-row"><input name="futuEnabled" type="checkbox" /> 启用富途</label>
+          <input name="futuHost" placeholder="富途 OpenD Host，默认 127.0.0.1" />
+          <input name="futuPort" placeholder="富途 OpenD Port，默认 11111" />
+          <label class="check-row"><input name="tigerEnabled" type="checkbox" /> 启用老虎</label>
+          <input name="tigerClientId" placeholder="Tiger Client ID" />
+          <input name="tigerAccount" placeholder="Tiger Account" />
+          <input name="tigerPrivateKeyPath" placeholder="Tiger 私钥文件绝对路径" />
+          <input name="tigerLicense" placeholder="Tiger License" />
+          <label class="check-row"><input name="tigerSandbox" type="checkbox" checked /> 老虎 Sandbox</label>
+          <label class="check-row"><input name="ibkrEnabled" type="checkbox" /> 启用 IBKR</label>
+          <input name="ibkrHost" placeholder="IBKR TWS / Gateway Host，默认 127.0.0.1" />
+          <input name="ibkrPort" placeholder="IBKR 端口，Paper 默认 7497，Live 常用 7496" />
+          <select name="ibkrMode">
+            <option value="paper" selected>IBKR Paper</option>
+            <option value="live">IBKR Live</option>
+          </select>
+          <label class="check-row"><input name="chiefEnabled" type="checkbox" /> 启用致富证券官方 API</label>
+          <input name="chiefOfficialApiUrl" placeholder="致富证券官方 API URL，如官方提供才填写" />
+          <input name="chiefApiNote" placeholder="致富证券 API 备注" />
+          <button class="secondary-btn" type="submit">保存券商配置</button>
+        </form>
+        <div class="source-panel">
+          <div>
+            <h3>自动行情维护</h3>
+            <p class="muted">自动刷新采集池和机会榜股票的价格、涨跌幅、相对大盘和量比。</p>
+          </div>
+          <div class="source-actions">
+            <button id="refreshMarketButton" class="primary-btn" type="button">自动刷新行情</button>
+          </div>
+        </div>
+        <div class="source-panel">
+          <div>
+            <h3>飞书机器人</h3>
+            <p id="feishuStatus" class="muted">检查配置中</p>
+          </div>
+          <div class="source-actions">
+            <button id="feishuTestButton" class="secondary-btn" type="button">测试消息</button>
+            <button id="feishuDailyButton" class="primary-btn" type="button">推送每日榜</button>
+            <button id="feishuRiskButton" class="secondary-btn" type="button">推送风险提醒</button>
+          </div>
+        </div>
+        <form id="feishuConfigForm" class="event-form compact-form">
+          <input name="webhookUrl" placeholder="Webhook URL" />
+          <input name="appId" placeholder="App ID，用于群指令" />
+          <input name="appSecret" placeholder="App Secret，用于群指令" />
+          <input name="verificationToken" placeholder="Verification Token" />
+          <button class="secondary-btn" type="submit">保存飞书配置</button>
+        </form>
+        <div class="source-panel">
+          <div>
+            <h3>官方披露采集</h3>
+            <p class="muted">美股：SEC EDGAR；港股：HKEXnews 公告标题搜索。</p>
+          </div>
+          <div class="source-actions">
+            <button id="collectAllButton" class="primary-btn" type="button">采集美股+港股</button>
+            <button id="collectUsButton" class="secondary-btn" type="button">只采美股</button>
+            <button id="collectHkButton" class="secondary-btn" type="button">只采港股</button>
+          </div>
+        </div>
+        <div id="sourceConfig" class="source-config"></div>
+        <form id="sourceStockForm" class="event-form compact-form">
+          <select name="market">
+            <option value="us">美股</option>
+            <option value="hk">港股</option>
+          </select>
+          <input name="symbol" placeholder="美股代码或港股展示代码" />
+          <input name="code" placeholder="港股代码，如 00700" />
+          <input name="stockName" placeholder="股票名称" />
+          <input name="cik" placeholder="美股 CIK，可选" />
+          <input name="industry" placeholder="行业" />
+          <button class="secondary-btn" type="submit">加入采集池</button>
+        </form>
+        <div id="ingestionRuns" class="table-wrap"></div>
+      </section>
+
+      <section id="watchlist" class="view">
+        <div class="section-head">
+          <h2>观察池</h2>
+          <p>跟踪入池标的的T+1/T+3/T+5/T+10/T+20验证。</p>
+        </div>
+        <div id="watchlistTable" class="table-wrap"></div>
+        <form id="performanceForm" class="inline-form">
+          <input name="watchlistId" placeholder="观察池ID" required />
+          <input name="t1" type="number" step="0.1" placeholder="T+1%" />
+          <input name="relativeMarket" type="number" step="0.1" placeholder="相对大盘%" />
+          <input name="maxDrawdown" type="number" step="0.1" placeholder="最大回撤%" />
+          <button class="secondary-btn" type="submit">更新验证</button>
+        </form>
+      </section>
+
+      <section id="actions" class="view">
+        <div class="section-head">
+          <h2>个人动作</h2>
+          <p>记录模拟买入、模拟卖出、重点跟踪和忽略，用于后续复盘。</p>
+        </div>
+        <div id="actionsTable" class="table-wrap"></div>
+      </section>
+
+      <section id="review" class="view">
+        <div class="section-head">
+          <h2>复盘中心</h2>
+          <p>用后续表现校验评分模型，而不是让评分停在静态判断。</p>
+        </div>
+        <div id="reviewPanel" class="panel-grid"></div>
+      </section>
+
+      <section id="industries" class="view">
+        <div class="section-head">
+          <h2>自定义行业</h2>
+          <p>行业匹配只做加分项，入池仍需事件增量和验证信号。</p>
+        </div>
+        <form id="industryForm" class="inline-form">
+          <input name="id" type="hidden" />
+          <input name="name" placeholder="行业名称" required />
+          <input name="keywords" placeholder="关键词，用逗号分隔" />
+          <input name="stockPool" placeholder="股票池，用逗号分隔" />
+          <select name="priority">
+            <option value="高">高优先级</option>
+            <option value="中" selected>中优先级</option>
+            <option value="低">低优先级</option>
+          </select>
+          <button class="primary-btn" type="submit">添加行业</button>
+        </form>
+        <button id="industryCancelButton" class="secondary-btn" type="button" hidden>取消编辑</button>
+        <div id="industryList" class="industry-list"></div>
+      </section>
+
+      <section id="model" class="view">
+        <div class="section-head">
+          <h2>模型配置</h2>
+          <p>权重调整需要用户确认，并保留历史版本。</p>
+        </div>
+        <div id="modelWeights" class="weights"></div>
+      </section>
+    </main>
+
+    <dialog id="detailDialog">
+      <article class="detail-card">
+        <button id="closeDialog" class="icon-button" aria-label="关闭">×</button>
+        <div id="detailContent"></div>
+      </article>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

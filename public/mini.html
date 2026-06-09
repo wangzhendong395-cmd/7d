@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>7D雷达小程序</title>
+    <link rel="stylesheet" href="/mini.css" />
+  </head>
+  <body>
+    <main class="mini">
+      <header>
+        <div>
+          <p>7D事件机会雷达</p>
+          <h1>今日观察</h1>
+        </div>
+        <button id="refreshButton">刷新</button>
+      </header>
+
+      <section class="search">
+        <input id="symbolInput" placeholder="输入 NVDA / 0700.HK" />
+        <button id="queryButton">查询</button>
+      </section>
+
+      <section id="summary" class="summary"></section>
+      <section id="cards" class="cards"></section>
+      <section id="stockDetail" class="detail" hidden></section>
+    </main>
+    <script type="module" src="/mini.js"></script>
+  </body>
+</html>

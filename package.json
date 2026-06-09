@@ -1,0 +1,24 @@
+{
+  "name": "hk-us-7d-event-radar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal HK/US stock 7-day event opportunity radar MVP.",
+  "type": "module",
+  "scripts": {
+    "dev": "node server/index.js",
+    "start": "node server/index.js",
+    "collect": "node scripts/collect-disclosures.js",
+    "market": "node scripts/refresh-market.js",
+    "feishu:daily": "node scripts/push-feishu.js daily",
+    "feishu:risk": "node scripts/push-feishu.js risk",
+    "feishu:test": "node scripts/push-feishu.js test",
+    "brokers": "node scripts/broker-status.js",
+    "config:init": "node scripts/init-config.js",
+    "tunnel": "scripts\\start-tunnel.cmd",
+    "backup": "node scripts/backup-db.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
