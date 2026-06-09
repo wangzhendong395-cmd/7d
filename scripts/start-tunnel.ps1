@@ -2,7 +2,8 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
 $Cloudflared = Join-Path $Root "tools\cloudflared.exe"
-$LocalUrl = "http://localhost:3000"
+$LocalPort = if ($env:PORT) { $env:PORT } else { "7317" }
+$LocalUrl = "http://localhost:$LocalPort"
 
 if (!(Test-Path $Cloudflared)) {
   Write-Error "cloudflared.exe not found. Expected: $Cloudflared"

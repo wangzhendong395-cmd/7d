@@ -50,7 +50,8 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const publicDir = path.join(rootDir, "public");
-const port = Number(process.env.PORT || 3000);
+const defaultPort = 7317;
+const getPort = () => Number(process.env.PORT || defaultPort);
 
 const json = (res, data, status = 200) => {
   res.writeHead(status, {
@@ -694,10 +695,46 @@ export default async function handler(req, res) {
 
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
+const startLocalServer = async () => {
+  const requestedPort = getPort();
+  const maxAttempts = 10;
+
+  for (let offset = 0; offset < maxAttempts; offset += 1) {
+    const port = requestedPort + offset;
+    const server = createServer();
+
+    try {
+      await new Promise((resolve, reject) => {
+        const onError = (error) => {
+          server.off("listening", onListening);
+          reject(error);
+        };
+        const onListening = () => {
+          server.off("error", onError);
+          resolve();
+        };
+
+        server.once("error", onError);
+        server.once("listening", onListening);
+        server.listen(port);
+      });
+
+      if (port !== requestedPort) {
+        console.warn(`Port ${requestedPort} is in use; 7D switched to http://localhost:${port}`);
+      }
+      console.log(`7D event radar running at http://localhost:${port}`);
+      return server;
+    } catch (error) {
+      if (error.code !== "EADDRINUSE" || offset === maxAttempts - 1) {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error(`No available port found from ${requestedPort} to ${requestedPort + maxAttempts - 1}`);
+};
+
 if (isDirectRun) {
   await loadLocalEnv();
-  const server = createServer();
-  server.listen(port, () => {
-    console.log(`7D event radar running at http://localhost:${port}`);
-  });
+  await startLocalServer();
 }

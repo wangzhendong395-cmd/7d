@@ -36,8 +36,10 @@ npm run dev
 打开：
 
 ```text
-http://localhost:3000
+http://localhost:7317
 ```
+
+默认本地端口为 `7317`；如果该端口被占用，开发服务会自动尝试后续可用端口，并在终端打印最终访问地址。
 
 ## 测试
 
@@ -257,7 +259,7 @@ im.message.receive_v1
 当前先提供一个手机端 Web 小程序入口：
 
 ```text
-http://localhost:3000/mini
+http://localhost:7317/mini
 ```
 
 功能：
