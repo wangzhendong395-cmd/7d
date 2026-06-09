@@ -452,6 +452,21 @@ test("market refresh endpoint updates snapshots", async (t) => {
 
   const snapshots = await requestJson(baseUrl, "/api/market-snapshots");
   assert.ok(snapshots.body.items.length >= 1);
+
+  const daily = await requestJson(baseUrl, "/api/daily-run", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      includeDisclosures: false,
+      includeNews: false,
+      includeMarket: true
+    })
+  });
+  assert.equal(daily.response.status, 200);
+  assert.ok(daily.body.imported >= 1);
+  assert.equal(daily.body.steps.market.imported, daily.body.imported);
+  assert.ok(daily.body.dailyReport.count >= 1);
+  assert.ok(daily.body.review.entryCount >= 1);
 });
 
 test("feishu APIs report skipped when webhook is not configured", async (t) => {

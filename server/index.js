@@ -226,6 +226,120 @@ const buildDailyReportRows = (db, url) => {
     });
 };
 
+const runOfficialDisclosureCollection = async ({ markets = ["US", "HK"], days = 7 } = {}) => {
+  const startedAt = new Date().toISOString();
+  const collected = await collectOfficialDisclosures({ config: await getDataSourceConfig(), markets, days });
+  const results = await addEventsAndScore(collected.events);
+  const run = await recordIngestionRun({
+    type: "official-disclosures",
+    status: collected.errors.length ? "partial" : "success",
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    markets,
+    days,
+    imported: results.filter((item) => !item.error).length,
+    failed: results.filter((item) => item.error).length,
+    scored: results.filter((item) => item.opportunity).length,
+    errors: collected.errors
+  });
+  return { run, results, errors: collected.errors };
+};
+
+const runNewsCollection = async ({ days = 7 } = {}) => {
+  const startedAt = new Date().toISOString();
+  const collected = await collectRssNews({
+    feeds: await getNewsFeeds(),
+    config: await getDataSourceConfig(),
+    days
+  });
+  const results = await addEventsAndScore(collected.events);
+  const run = await recordIngestionRun({
+    type: "rss-news",
+    status: collected.errors.length ? "partial" : "success",
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    days,
+    imported: results.filter((item) => !item.error).length,
+    failed: results.filter((item) => item.error).length,
+    scored: results.filter((item) => item.opportunity).length,
+    errors: collected.errors
+  });
+  return { run, results, errors: collected.errors };
+};
+
+const runMarketRefresh = async ({ symbols } = {}) => {
+  const tracked = await getTrackedMarketStocks();
+  const selected = Array.isArray(symbols) && symbols.length
+    ? tracked.filter((item) => symbols.includes(item.symbol))
+    : tracked;
+  const collected = await collectMarketSnapshots({ stocks: selected });
+  const snapshots = await addMarketSnapshots(collected.snapshots);
+  return {
+    imported: snapshots.length,
+    failed: collected.errors.length,
+    snapshots,
+    performanceSynced: Number(snapshots.performanceSynced || 0),
+    errors: collected.errors
+  };
+};
+
+const runDailyUpdate = async ({ days = 7, markets = ["US", "HK"], symbols, includeDisclosures = true, includeNews = true, includeMarket = true } = {}) => {
+  const startedAt = new Date().toISOString();
+  const steps = {};
+
+  if (includeDisclosures) steps.disclosures = await runOfficialDisclosureCollection({ markets, days });
+  if (includeNews) steps.news = await runNewsCollection({ days });
+  if (includeMarket) steps.market = await runMarketRefresh({ symbols });
+
+  const review = await regenerateWeeklyReview();
+  const freshDb = await readDb();
+  const reportUrl = new URL("/api/daily-report?limit=50", "http://local");
+  const dailyReport = buildDailyReportRows(freshDb, reportUrl);
+  const imported =
+    (steps.disclosures?.run?.imported || 0) +
+    (steps.news?.run?.imported || 0) +
+    (steps.market?.imported || 0);
+  const failed =
+    (steps.disclosures?.run?.failed || 0) +
+    (steps.news?.run?.failed || 0) +
+    (steps.market?.failed || 0);
+  const status = failed ? "partial" : "success";
+  const finishedAt = new Date().toISOString();
+  const run = await recordIngestionRun({
+    type: "daily-run",
+    status,
+    startedAt,
+    finishedAt,
+    markets,
+    days,
+    imported,
+    failed,
+    scored: (steps.disclosures?.run?.scored || 0) + (steps.news?.run?.scored || 0),
+    errors: [
+      ...(steps.disclosures?.errors || []),
+      ...(steps.news?.errors || []),
+      ...(steps.market?.errors || [])
+    ]
+  });
+
+  return {
+    status,
+    startedAt,
+    finishedAt,
+    days,
+    markets,
+    imported,
+    failed,
+    run,
+    steps,
+    review,
+    dailyReport: {
+      count: dailyReport.length,
+      items: dailyReport.slice(0, 10)
+    }
+  };
+};
+
 const routeApi = async (req, res, url) => {
   const db = await readDb();
 
@@ -325,22 +439,7 @@ const routeApi = async (req, res, url) => {
     const body = await readBody(req);
     const markets = Array.isArray(body.markets) && body.markets.length ? body.markets : ["US", "HK"];
     const days = Number(body.days || 7);
-    const startedAt = new Date().toISOString();
-    const collected = await collectOfficialDisclosures({ config: await getDataSourceConfig(), markets, days });
-    const results = await addEventsAndScore(collected.events);
-    const run = await recordIngestionRun({
-      type: "official-disclosures",
-      status: collected.errors.length ? "partial" : "success",
-      startedAt,
-      finishedAt: new Date().toISOString(),
-      markets,
-      days,
-      imported: results.filter((item) => !item.error).length,
-      failed: results.filter((item) => item.error).length,
-      scored: results.filter((item) => item.opportunity).length,
-      errors: collected.errors
-    });
-    return json(res, { run, results, errors: collected.errors });
+    return json(res, await runOfficialDisclosureCollection({ markets, days }));
   }
 
   if (req.method === "GET" && url.pathname === "/api/news-feeds") {
@@ -362,25 +461,7 @@ const routeApi = async (req, res, url) => {
   if (req.method === "POST" && url.pathname === "/api/collect/news") {
     const body = await readBody(req);
     const days = Number(body.days || 7);
-    const startedAt = new Date().toISOString();
-    const collected = await collectRssNews({
-      feeds: await getNewsFeeds(),
-      config: await getDataSourceConfig(),
-      days
-    });
-    const results = await addEventsAndScore(collected.events);
-    const run = await recordIngestionRun({
-      type: "rss-news",
-      status: collected.errors.length ? "partial" : "success",
-      startedAt,
-      finishedAt: new Date().toISOString(),
-      days,
-      imported: results.filter((item) => !item.error).length,
-      failed: results.filter((item) => item.error).length,
-      scored: results.filter((item) => item.opportunity).length,
-      errors: collected.errors
-    });
-    return json(res, { run, results, errors: collected.errors });
+    return json(res, await runNewsCollection({ days }));
   }
 
   if (req.method === "GET" && url.pathname === "/api/market-snapshots") {
@@ -389,19 +470,20 @@ const routeApi = async (req, res, url) => {
 
   if (req.method === "POST" && url.pathname === "/api/market/refresh") {
     const body = await readBody(req);
-    const tracked = await getTrackedMarketStocks();
-    const symbols = Array.isArray(body.symbols) && body.symbols.length
-      ? tracked.filter((item) => body.symbols.includes(item.symbol))
-      : tracked;
-    const collected = await collectMarketSnapshots({ stocks: symbols });
-    const snapshots = await addMarketSnapshots(collected.snapshots);
-    return json(res, {
-      imported: snapshots.length,
-      failed: collected.errors.length,
-      snapshots,
-      performanceSynced: Number(snapshots.performanceSynced || 0),
-      errors: collected.errors
-    });
+    return json(res, await runMarketRefresh({ symbols: body.symbols }));
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/daily-run") {
+    const body = await readBody(req);
+    const markets = Array.isArray(body.markets) && body.markets.length ? body.markets : ["US", "HK"];
+    return json(res, await runDailyUpdate({
+      days: Number(body.days || 7),
+      markets,
+      symbols: body.symbols,
+      includeDisclosures: body.includeDisclosures ?? true,
+      includeNews: body.includeNews ?? true,
+      includeMarket: body.includeMarket ?? true
+    }));
   }
 
   if (req.method === "POST" && url.pathname === "/api/market-snapshots") {

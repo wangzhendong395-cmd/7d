@@ -827,6 +827,31 @@ const submitPerformance = async (formElement) => {
   await Promise.all([renderDailyReport(), renderPriorityWatch(), renderWatchlist(), renderReview()]);
 };
 
+const runDailyUpdate = async () => {
+  const button = $("#dailyRunButton");
+  button.disabled = true;
+  try {
+    const result = await api("/api/daily-run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ days: 7, markets: ["US", "HK"] })
+    });
+    showToast(`每日更新完成：导入${result.imported}条，失败${result.failed}条，状态${result.status}`, result.failed ? "info" : "success");
+    await Promise.all([
+      renderOpportunities(),
+      renderDailyReport(),
+      renderPriorityWatch(),
+      renderWatchlist(),
+      renderReview(),
+      renderIngestionRuns(),
+      renderSystemStatus(),
+      renderModel()
+    ]);
+  } finally {
+    button.disabled = false;
+  }
+};
+
 const collectDisclosures = async (markets) => {
   const buttons = [$("#collectAllButton"), $("#collectUsButton"), $("#collectHkButton")];
   buttons.forEach((button) => (button.disabled = true));
@@ -960,6 +985,7 @@ const initEvents = () => {
     event.preventDefault();
     await submitPerformance(event.currentTarget);
   });
+  $("#dailyRunButton").addEventListener("click", () => runDailyUpdate());
   $("#collectAllButton").addEventListener("click", () => collectDisclosures(["US", "HK"]));
   $("#collectUsButton").addEventListener("click", () => collectDisclosures(["US"]));
   $("#collectHkButton").addEventListener("click", () => collectDisclosures(["HK"]));
