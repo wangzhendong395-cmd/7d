@@ -194,6 +194,51 @@ test("official disclosure collection endpoint records ingestion run", async (t) 
   assert.equal(collect.body.run.status, "success");
 });
 
+test("RSS news collection endpoint records matched stock events", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  globalThis.fetch = async (url, options) => {
+    if (String(url).startsWith("http://127.0.0.1")) return originalFetch(url, options);
+    return {
+      ok: true,
+      text: async () => `
+        <rss><channel>
+          <item>
+            <title>NVIDIA wins AI platform order</title>
+            <description>NVDA data center demand remains strong.</description>
+            <pubDate>${new Date().toUTCString()}</pubDate>
+            <link>https://example.test/nvda</link>
+          </item>
+        </channel></rss>
+      `
+    };
+  };
+
+  const { baseUrl, server } = await startServer();
+  t.after(() => server.close());
+
+  const feed = await requestJson(baseUrl, "/api/news-feeds", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Mock RSS", url: "https://example.test/rss", sourceCredibility: "B" })
+  });
+  assert.equal(feed.response.status, 201);
+
+  const collect = await requestJson(baseUrl, "/api/collect/news", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ days: 7 })
+  });
+  assert.equal(collect.response.status, 200);
+  assert.ok(collect.body.run.imported >= 1);
+
+  const removed = await requestJson(baseUrl, `/api/news-feeds/${feed.body.id}`, { method: "DELETE" });
+  assert.equal(removed.body.removed, 1);
+});
+
 test("opportunity list groups by stock and stock brief exposes all events", async (t) => {
   const { baseUrl, server } = await startServer();
   t.after(() => server.close());

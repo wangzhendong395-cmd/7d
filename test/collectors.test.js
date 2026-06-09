@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { collectHkexAnnouncements } from "../server/collectors/hkex.js";
+import { collectRssNews } from "../server/collectors/rss.js";
 import { collectSecFilings } from "../server/collectors/sec.js";
 
 const mockResponse = (body, ok = true, status = 200) => ({
@@ -8,6 +9,47 @@ const mockResponse = (body, ok = true, status = 200) => ({
   status,
   json: async () => body,
   text: async () => body
+});
+
+test("RSS collector matches news to tracked stocks", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const today = new Date().toUTCString();
+  globalThis.fetch = async () =>
+    mockResponse(`
+      <rss>
+        <channel>
+          <item>
+            <title>NVIDIA expands AI server partnership</title>
+            <description>NVDA announced a new AI infrastructure collaboration.</description>
+            <link>https://example.test/nvda</link>
+            <pubDate>${today}</pubDate>
+          </item>
+          <item>
+            <title>Untracked company headline</title>
+            <description>No matching ticker.</description>
+            <pubDate>${today}</pubDate>
+          </item>
+        </channel>
+      </rss>
+    `);
+
+  const collected = await collectRssNews({
+    feeds: [{ name: "Mock News", url: "https://example.test/rss", sourceCredibility: "B" }],
+    config: {
+      us: [{ symbol: "NVDA", stockName: "NVIDIA", industry: "AI算力" }],
+      hk: []
+    },
+    days: 7
+  });
+
+  assert.equal(collected.errors.length, 0);
+  assert.equal(collected.events.length, 1);
+  assert.equal(collected.events[0].symbol, "NVDA");
+  assert.equal(collected.events[0].source, "Mock News");
 });
 
 test("SEC collector maps recent filings to events", async (t) => {

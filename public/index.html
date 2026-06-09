@@ -178,8 +178,20 @@
             <button id="collectAllButton" class="primary-btn" type="button">采集美股+港股</button>
             <button id="collectUsButton" class="secondary-btn" type="button">只采美股</button>
             <button id="collectHkButton" class="secondary-btn" type="button">只采港股</button>
+            <button id="collectNewsButton" class="secondary-btn" type="button">采集新闻/RSS</button>
           </div>
         </div>
+        <div id="newsFeeds" class="source-config"></div>
+        <form id="newsFeedForm" class="event-form compact-form">
+          <input name="name" placeholder="新闻源名称，如 Yahoo Finance" />
+          <input name="url" placeholder="RSS URL" required />
+          <select name="sourceCredibility">
+            <option value="A">A级来源</option>
+            <option value="B" selected>B级来源</option>
+            <option value="C">C级来源</option>
+          </select>
+          <button class="secondary-btn" type="submit">加入新闻源</button>
+        </form>
         <div id="sourceConfig" class="source-config"></div>
         <form id="sourceStockForm" class="event-form compact-form">
           <select name="market">

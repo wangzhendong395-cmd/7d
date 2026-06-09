@@ -379,6 +379,24 @@ const renderSourceConfig = async () => {
   `;
 };
 
+const renderNewsFeeds = async () => {
+  const data = await api("/api/news-feeds");
+  $("#newsFeeds").innerHTML = `
+    <article class="panel">
+      <h3>新闻/RSS源</h3>
+      <div class="pool-list">
+        ${data.items
+          .map(
+            (item) => `
+              <span class="tag pool-tag">${item.name}<button data-remove-feed="${item.id}" aria-label="删除 ${item.name}">×</button></span>
+            `
+          )
+          .join("")}
+      </div>
+    </article>
+  `;
+};
+
 const renderFeishuStatus = async () => {
   const data = await api("/api/feishu/status");
   const push = data.configured ? "推送已配置" : "推送未配置";
@@ -633,6 +651,22 @@ const collectDisclosures = async (markets) => {
   }
 };
 
+const collectNews = async () => {
+  const button = $("#collectNewsButton");
+  button.disabled = true;
+  try {
+    const result = await api("/api/collect/news", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ days: 7 })
+    });
+    showToast(`新闻采集完成：导入${result.run.imported}条，状态${result.run.status}`, result.errors.length ? "info" : "success");
+    await Promise.all([renderOpportunities(), renderIngestionRuns(), renderSystemStatus()]);
+  } finally {
+    button.disabled = false;
+  }
+};
+
 const refreshMarketSnapshots = async () => {
   const button = $("#refreshMarketButton");
   button.disabled = true;
@@ -727,6 +761,7 @@ const initEvents = () => {
   $("#collectAllButton").addEventListener("click", () => collectDisclosures(["US", "HK"]));
   $("#collectUsButton").addEventListener("click", () => collectDisclosures(["US"]));
   $("#collectHkButton").addEventListener("click", () => collectDisclosures(["HK"]));
+  $("#collectNewsButton").addEventListener("click", () => collectNews());
   $("#refreshMarketButton").addEventListener("click", () => refreshMarketSnapshots());
   $("#feishuTestButton").addEventListener("click", () => pushFeishu("/api/feishu/test", "飞书测试消息已发送"));
   $("#feishuDailyButton").addEventListener("click", () => pushFeishu("/api/feishu/push/daily", "飞书每日榜已发送"));
@@ -815,6 +850,32 @@ const initEvents = () => {
       await Promise.all([renderSourceConfig(), renderSystemStatus()]);
     }, "已从采集池删除");
   });
+  $("#newsFeedForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    await withToast(async () => {
+      await api("/api/news-feeds", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: form.get("name"),
+          url: form.get("url"),
+          sourceCredibility: form.get("sourceCredibility")
+        })
+      });
+      formElement.reset();
+      await renderNewsFeeds();
+    }, "新闻源已更新");
+  });
+  $("#newsFeeds").addEventListener("click", async (event) => {
+    const id = event.target.dataset.removeFeed;
+    if (!id) return;
+    await withToast(async () => {
+      await api(`/api/news-feeds/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await renderNewsFeeds();
+    }, "新闻源已删除");
+  });
   $("#industryForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -869,6 +930,7 @@ const bootstrap = async () => {
     renderWatchlist(),
     renderPersonalActions(),
     renderSourceConfig(),
+    renderNewsFeeds(),
     renderFeishuStatus(),
     renderBrokerStatus(),
     renderIngestionRuns(),

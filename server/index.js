@@ -7,6 +7,7 @@ import { loadLocalEnv, maskSecret, saveLocalEnvValues } from "./env.js";
 import { buildBrokerEnvValues, getBrokerStatus, testChiefConfig, testFutuOpenD, testIbkrGateway, testTigerConfig } from "./brokers.js";
 import { collectOfficialDisclosures } from "./collectors/index.js";
 import { collectMarketSnapshots } from "./collectors/market.js";
+import { collectRssNews } from "./collectors/rss.js";
 import {
   buildDailyDigestText,
   buildHelpText,
@@ -30,6 +31,7 @@ import {
   confirmModelSuggestion,
   createBackup,
   getDataSourceConfig,
+  getNewsFeeds,
   getSystemStatus,
   getTrackedMarketStocks,
   readDb,
@@ -37,9 +39,11 @@ import {
   recordIngestionRun,
   removeCustomIndustry,
   removeDataSourceStock,
+  removeNewsFeed,
   regenerateWeeklyReview,
   updatePerformance,
   updateCustomIndustry,
+  upsertNewsFeed,
   upsertDataSourceStock
 } from "./store.js";
 
@@ -252,6 +256,46 @@ const routeApi = async (req, res, url) => {
       startedAt,
       finishedAt: new Date().toISOString(),
       markets,
+      days,
+      imported: results.filter((item) => !item.error).length,
+      failed: results.filter((item) => item.error).length,
+      scored: results.filter((item) => item.opportunity).length,
+      errors: collected.errors
+    });
+    return json(res, { run, results, errors: collected.errors });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/news-feeds") {
+    return json(res, { items: await getNewsFeeds() });
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/news-feeds") {
+    const body = await readBody(req);
+    const result = await upsertNewsFeed(body);
+    return result.error ? json(res, { error: result.error }, 400) : json(res, result, 201);
+  }
+
+  const newsFeedDeleteMatch = url.pathname.match(/^\/api\/news-feeds\/([^/]+)$/);
+  if (req.method === "DELETE" && newsFeedDeleteMatch) {
+    const result = await removeNewsFeed(decodeURIComponent(newsFeedDeleteMatch[1]));
+    return result.removed ? json(res, result) : json(res, { error: "News feed not found" }, 404);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/collect/news") {
+    const body = await readBody(req);
+    const days = Number(body.days || 7);
+    const startedAt = new Date().toISOString();
+    const collected = await collectRssNews({
+      feeds: await getNewsFeeds(),
+      config: await getDataSourceConfig(),
+      days
+    });
+    const results = await addEventsAndScore(collected.events);
+    const run = await recordIngestionRun({
+      type: "rss-news",
+      status: collected.errors.length ? "partial" : "success",
+      startedAt,
+      finishedAt: new Date().toISOString(),
       days,
       imported: results.filter((item) => !item.error).length,
       failed: results.filter((item) => item.error).length,

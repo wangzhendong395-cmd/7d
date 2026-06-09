@@ -8,6 +8,7 @@
     "dev": "node server/index.js",
     "start": "node server/index.js",
     "collect": "node scripts/collect-disclosures.js",
+    "news": "node scripts/collect-news.js",
     "market": "node scripts/refresh-market.js",
     "feishu:daily": "node scripts/push-feishu.js daily",
     "feishu:risk": "node scripts/push-feishu.js risk",

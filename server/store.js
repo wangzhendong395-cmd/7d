@@ -86,6 +86,17 @@ const defaultTechFocusIndustry = {
   note: "覆盖科技、AI、半导体和AI终端链条，作为事件筛选的行业加分项。"
 };
 
+const defaultNewsFeeds = [
+  {
+    id: "feed-yahoo-finance",
+    name: "Yahoo Finance",
+    url: "https://finance.yahoo.com/news/rssindex",
+    enabled: true,
+    sourceCredibility: "B",
+    note: "公共财经新闻RSS，按采集池股票名称和代码匹配。"
+  }
+];
+
 const migrateDataSourceCoverage = (db) => {
   const hasTechFocus = db.customIndustries?.some((item) => item.id === defaultTechFocusIndustry.id);
   if (db.sourceCoverageVersion === sourceCoverageVersion && hasTechFocus) return db;
@@ -116,6 +127,7 @@ const ensureShape = (db) => ({
     marketSnapshots: db.marketSnapshots || [],
     ingestionRuns: db.ingestionRuns || [],
     dataSourceConfig: db.dataSourceConfig || seedDataSourceConfig,
+    newsFeeds: db.newsFeeds || defaultNewsFeeds,
     feishuEvents: db.feishuEvents || []
   })
 });
@@ -443,6 +455,36 @@ export const getDataSourceConfig = async () => {
   return db.dataSourceConfig;
 };
 
+export const getNewsFeeds = async () => {
+  const db = await readDb();
+  return db.newsFeeds || [];
+};
+
+export const upsertNewsFeed = async (payload) => {
+  const db = await readDb();
+  const feed = {
+    id: payload.id || `feed-${Date.now()}`,
+    name: payload.name || "RSS",
+    url: payload.url || "",
+    enabled: payload.enabled ?? true,
+    sourceCredibility: payload.sourceCredibility || "B",
+    note: payload.note || ""
+  };
+  if (!feed.url) return { error: "url is required" };
+  db.newsFeeds = (db.newsFeeds || []).filter((item) => item.id !== feed.id && item.url !== feed.url);
+  db.newsFeeds.push(feed);
+  await writeDb(db);
+  return feed;
+};
+
+export const removeNewsFeed = async (id) => {
+  const db = await readDb();
+  const before = (db.newsFeeds || []).length;
+  db.newsFeeds = (db.newsFeeds || []).filter((item) => item.id !== id);
+  await writeDb(db);
+  return { removed: before - db.newsFeeds.length };
+};
+
 export const upsertDataSourceStock = async (market, payload) => {
   const db = await readDb();
   const key = market.toLowerCase();
@@ -524,7 +566,8 @@ export const getSystemStatus = async () => {
       groupedStocks: symbols.size,
       watchlist: db.watchlistEntries.length,
       customIndustries: db.customIndustries.length,
-      marketSnapshots: db.marketSnapshots.length
+      marketSnapshots: db.marketSnapshots.length,
+      newsFeeds: db.newsFeeds.length
     },
     dataSources: {
       us: db.dataSourceConfig.us.length,
