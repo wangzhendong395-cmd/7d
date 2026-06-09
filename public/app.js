@@ -709,7 +709,8 @@ const submitMarketSnapshot = async (formElement) => {
     })
   });
   formElement.reset();
-  await renderOpportunities();
+  await api("/api/reviews/weekly/regenerate", { method: "POST" });
+  await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist(), renderReview()]);
 };
 
 const submitPerformance = async (formElement) => {
@@ -776,8 +777,9 @@ const refreshMarketSnapshots = async () => {
   button.disabled = true;
   try {
     const result = await api("/api/market/refresh", { method: "POST" });
-    showToast(`行情刷新完成：更新${result.imported}只，失败${result.failed}只`, result.failed ? "info" : "success");
-    await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist(), renderSystemStatus()]);
+    showToast(`行情刷新完成：更新${result.imported}只，同步走势${result.performanceSynced || 0}条，失败${result.failed}只`, result.failed ? "info" : "success");
+    await api("/api/reviews/weekly/regenerate", { method: "POST" });
+    await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist(), renderReview(), renderSystemStatus()]);
   } finally {
     button.disabled = false;
   }

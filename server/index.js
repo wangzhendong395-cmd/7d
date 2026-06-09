@@ -365,6 +365,7 @@ const routeApi = async (req, res, url) => {
       imported: snapshots.length,
       failed: collected.errors.length,
       snapshots,
+      performanceSynced: Number(snapshots.performanceSynced || 0),
       errors: collected.errors
     });
   }

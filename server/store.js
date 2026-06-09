@@ -26,7 +26,7 @@ const seedDb = () => ({
   createdAt: new Date().toISOString(),
   rawEvents,
   scoredEvents,
-  watchlistEntries,
+  watchlistEntries: watchlistEntries.map(normalizeWatchEntry),
   performanceTracking,
   customIndustries: customIndustries.some((item) => item.id === defaultTechFocusIndustry.id)
     ? customIndustries
@@ -153,10 +153,79 @@ const syncWatchPoolForOpportunities = (db, opportunities) => {
   opportunities.forEach((opportunity) => {
     if (!opportunity || !isAutoWatchGrade(opportunity.grade)) return;
     const existing = db.watchlistEntries.find((item) => item.opportunityId === opportunity.id);
-    const entry = buildWatchEntryFromOpportunity(opportunity, existing?.entryPrice ?? null, existing);
+    const snapshot = db.marketSnapshots.find((item) => item.symbol === opportunity.symbol);
+    const entryPrice = existing?.entryPrice ?? snapshot?.price ?? null;
+    const entry = buildWatchEntryFromOpportunity(opportunity, entryPrice, existing);
     if (existing) Object.assign(existing, entry);
     else db.watchlistEntries.push(entry);
     synced.push(entry);
+  });
+  return synced;
+};
+
+const dayMs = 24 * 60 * 60 * 1000;
+const daysSinceEntry = (entryDate, trackingDate) => {
+  const start = new Date(`${entryDate}T00:00:00.000Z`);
+  const end = new Date(trackingDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  return Math.floor((end.getTime() - start.getTime()) / dayMs);
+};
+
+const trackingBucketForDays = (days) => {
+  if (days >= 20) return "t20";
+  if (days >= 10) return "t10";
+  if (days >= 5) return "t5";
+  if (days >= 3) return "t3";
+  if (days >= 1) return "t1";
+  return null;
+};
+
+const roundPct = (value) => Number(value.toFixed(2));
+
+const syncPerformanceFromSnapshots = (db, snapshots) => {
+  const synced = [];
+  snapshots.forEach((snapshot) => {
+    const entries = db.watchlistEntries.filter((entry) => entry.symbol === snapshot.symbol);
+    entries.forEach((entry) => {
+      if (!entry.entryPrice && snapshot.price > 0) {
+        entry.entryPrice = snapshot.price;
+        entry.updatedAt = new Date().toISOString();
+      }
+      if (!entry.entryPrice || !snapshot.price) return;
+
+      const bucket = trackingBucketForDays(daysSinceEntry(entry.entryDate, snapshot.capturedAt || new Date().toISOString()));
+      if (!bucket) return;
+
+      const existing = db.performanceTracking.find((item) => item.watchlistId === entry.id);
+      const trackedReturn = roundPct(((snapshot.price - entry.entryPrice) / entry.entryPrice) * 100);
+      const patch = {
+        ...(existing || {}),
+        watchlistId: entry.id,
+        stockCode: entry.symbol,
+        market: entry.market,
+        entryDate: entry.entryDate,
+        trackingDate: String(snapshot.capturedAt || new Date().toISOString()).slice(0, 10),
+        price: snapshot.price,
+        t1: existing?.t1 ?? null,
+        t3: existing?.t3 ?? null,
+        t5: existing?.t5 ?? null,
+        t10: existing?.t10 ?? null,
+        t20: existing?.t20 ?? null,
+        relativeMarket: Number.isFinite(snapshot.relativeMarketPct) ? snapshot.relativeMarketPct : existing?.relativeMarket ?? null,
+        relativeIndustry: Number.isFinite(snapshot.relativeIndustryPct) ? snapshot.relativeIndustryPct : existing?.relativeIndustry ?? null,
+        maxDrawdown: Math.min(existing?.maxDrawdown ?? 0, trackedReturn),
+        volumeChange: Number.isFinite(snapshot.volumeRatio) ? roundPct((snapshot.volumeRatio - 1) * 100) : existing?.volumeChange ?? null,
+        followupCatalyst: existing?.followupCatalyst ?? false,
+        riskTriggered: existing?.riskTriggered ?? (snapshot.changePct <= -2 || snapshot.relativeMarketPct <= -1.5),
+        verdict: snapshot.relativeMarketPct > 0 && trackedReturn > 0 ? "自动验证：初步有效" : "自动验证：待确认",
+        review: `行情自动跟踪：${snapshot.symbol} 当前价${snapshot.price}，${bucket.toUpperCase()} ${trackedReturn}%。`
+      };
+      patch[bucket] = trackedReturn;
+
+      if (existing) Object.assign(existing, patch);
+      else db.performanceTracking.push(patch);
+      synced.push(patch);
+    });
   });
   return synced;
 };
@@ -210,7 +279,7 @@ export const readDb = async () => {
     return db;
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
-    const db = seedDb();
+    const db = ensureShape(seedDb());
     await writeDb(db);
     return db;
   }
@@ -310,8 +379,9 @@ export const addMarketSnapshot = async (payload) => {
     return event ? buildOpportunityFromEvent(event, db) : opportunity;
   });
   syncWatchPoolForOpportunities(db, db.scoredEvents.filter((item) => item.symbol === snapshot.symbol));
+  const performanceSynced = syncPerformanceFromSnapshots(db, [snapshot]);
   await writeDb(db);
-  return snapshot;
+  return { ...snapshot, performanceSynced: performanceSynced.length };
 };
 
 const formatPct = (value) => `${Number(value || 0).toFixed(2)}%`;
@@ -391,6 +461,8 @@ export const addMarketSnapshots = async (payloads) => {
     return event ? buildOpportunityFromEvent(event, db) : opportunity;
   });
   syncWatchPoolForOpportunities(db, db.scoredEvents.filter((item) => changedSymbols.has(item.symbol)));
+  const performanceSynced = syncPerformanceFromSnapshots(db, snapshots);
+  snapshots.performanceSynced = performanceSynced.length;
 
   if (snapshots.length) {
     db.ingestionRuns.push({
@@ -400,7 +472,8 @@ export const addMarketSnapshots = async (payloads) => {
       createdAt: new Date().toISOString(),
       imported: snapshots.length,
       scored: db.scoredEvents.filter((item) => changedSymbols.has(item.symbol)).length,
-      marketSignals: marketEvents.length
+      marketSignals: marketEvents.length,
+      performanceSynced: performanceSynced.length
     });
   }
 
@@ -443,8 +516,14 @@ export const getTrackedMarketStocks = async () => {
 export const updatePerformance = async (watchlistId, payload) => {
   const db = await readDb();
   const existing = db.performanceTracking.find((item) => item.watchlistId === watchlistId);
+  const entry = db.watchlistEntries.find((item) => item.id === watchlistId);
   const patch = {
     watchlistId,
+    stockCode: payload.stockCode || entry?.symbol || existing?.stockCode || "",
+    market: payload.market || entry?.market || existing?.market || "",
+    entryDate: payload.entryDate || entry?.entryDate || existing?.entryDate || "",
+    trackingDate: payload.trackingDate || new Date().toISOString().slice(0, 10),
+    price: payload.price ?? existing?.price ?? null,
     t1: payload.t1 ?? null,
     t3: payload.t3 ?? null,
     t5: payload.t5 ?? null,

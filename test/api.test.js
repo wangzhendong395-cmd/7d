@@ -34,6 +34,10 @@ test("core API returns opportunities and persisted user actions", async (t) => {
   assert.equal(opportunities.response.status, 200);
   assert.equal(opportunities.body.items.length, 2);
 
+  const priority = await requestJson(baseUrl, "/api/watch-pool/priority");
+  assert.equal(priority.response.status, 200);
+  assert.ok(priority.body.items.some((item) => item.stockCode === "NVDA" && item.isPriorityWatch));
+
   const action = await requestJson(baseUrl, "/api/personal-actions", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -157,10 +161,31 @@ test("manual event ingest, market snapshot, and review regeneration work", async
   assert.equal(performance.body.t1, 2.4);
   assert.equal(performance.body.t5, 5.2);
   assert.equal(performance.body.relativeIndustry, 0.7);
+  assert.equal(performance.body.stockCode, "TEST");
+
+  const autoTracked = await requestJson(baseUrl, "/api/market-snapshots", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      symbol: "TEST",
+      price: 13.53,
+      changePct: 3.1,
+      relativeMarketPct: 1.9,
+      relativeIndustryPct: 1.2,
+      volumeRatio: 1.5,
+      capturedAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString()
+    })
+  });
+  assert.equal(autoTracked.response.status, 201);
+  assert.ok(autoTracked.body.performanceSynced >= 1);
 
   const priority = await requestJson(baseUrl, "/api/watch-pool/priority");
   assert.equal(priority.response.status, 200);
   assert.ok(priority.body.items.some((item) => item.stockCode === "TEST" && item.isPriorityWatch));
+  const testPriority = priority.body.items.find((item) => item.stockCode === "TEST");
+  assert.equal(testPriority.performance.t3, 10);
+  assert.equal(testPriority.performance.relativeMarket, 1.9);
+  assert.equal(testPriority.performance.volumeChange, 50);
 
   const review = await requestJson(baseUrl, "/api/reviews/weekly/regenerate", { method: "POST" });
   assert.ok(review.body.entryCount >= 1);
