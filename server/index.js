@@ -202,6 +202,30 @@ const buildWatchPoolItems = (db, { priorityOnly = false } = {}) =>
     })
     .sort((a, b) => Number(b.isPriorityWatch) - Number(a.isPriorityWatch) || gradeRank[b.entryGrade] - gradeRank[a.entryGrade] || b.entryScore - a.entryScore);
 
+const buildDailyReportRows = (db, url) => {
+  const filtered = filterOpportunities(db.scoredEvents, url);
+  const limit = clamp(Number(url.searchParams.get("limit") || 50) || 50, 1, 50);
+  return groupOpportunitiesByStock(filtered)
+    .slice(0, limit)
+    .map((item) => {
+      const decorated = decorateOpportunity(item, db);
+      return {
+        stockCode: decorated.stockCode,
+        stockName: decorated.stockName,
+        market: decorated.market,
+        industry: decorated.industry,
+        score: decorated.score,
+        grade: decorated.grade,
+        triggerEvent: decorated.triggerEvent,
+        entryReason: decorated.entryReason?.[0] || "",
+        keyRisk: decorated.keyRisks?.[0] || "",
+        followUpPoint: decorated.followUpPoints?.[0] || "",
+        poolStatus: decorated.poolStatus,
+        isPriorityWatch: decorated.isPriorityWatch
+      };
+    });
+};
+
 const routeApi = async (req, res, url) => {
   const db = await readDb();
 
@@ -240,6 +264,16 @@ const routeApi = async (req, res, url) => {
       items: items.slice(0, limit).map((item) => decorateOpportunity(item, db)),
       total: items.length,
       limit,
+      disclaimer: "本系统为个人研究和复盘工具，所有内容仅用于信息整理、事件跟踪和模型验证。"
+    });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/daily-report") {
+    const items = buildDailyReportRows(db, url);
+    return json(res, {
+      date: new Date().toISOString().slice(0, 10),
+      count: items.length,
+      items,
       disclaimer: "本系统为个人研究和复盘工具，所有内容仅用于信息整理、事件跟踪和模型验证。"
     });
   }

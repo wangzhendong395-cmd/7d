@@ -34,6 +34,12 @@ test("core API returns opportunities and persisted user actions", async (t) => {
   assert.equal(opportunities.response.status, 200);
   assert.equal(opportunities.body.items.length, 2);
 
+  const daily = await requestJson(baseUrl, "/api/daily-report?limit=3");
+  assert.equal(daily.response.status, 200);
+  assert.equal(daily.body.items.length, 3);
+  assert.ok(daily.body.items.every((item) => item.stockCode && item.stockName && item.market && item.poolStatus));
+  assert.ok(["重点关注", "普通观察", "未入池"].includes(daily.body.items[0].poolStatus));
+
   const priority = await requestJson(baseUrl, "/api/watch-pool/priority");
   assert.equal(priority.response.status, 200);
   assert.ok(priority.body.items.some((item) => item.stockCode === "NVDA" && item.isPriorityWatch));

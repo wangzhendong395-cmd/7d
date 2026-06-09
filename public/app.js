@@ -56,13 +56,18 @@ const renderSystemStatus = async () => {
   $("#systemStatus").textContent = `事件${data.records.rawEvents} / 股票${data.records.groupedStocks} / ${lastRun}`;
 };
 
-const renderOpportunities = async () => {
+const opportunityParams = () => {
   const params = new URLSearchParams();
   Object.entries(state.filters).forEach(([key, value]) => {
     if (value) params.set(key, value);
   });
-  params.set("group", "stock");
   params.set("limit", "50");
+  return params;
+};
+
+const renderOpportunities = async () => {
+  const params = opportunityParams();
+  params.set("group", "stock");
   const data = await api(`/api/opportunities?${params.toString()}`);
   state.opportunities = data.items;
   renderSummary(data.items);
@@ -102,6 +107,67 @@ const renderOpportunities = async () => {
       `
     )
     .join("");
+};
+
+const renderDailyReport = async () => {
+  const data = await api(`/api/daily-report?${opportunityParams().toString()}`);
+  $("#dailyReportTable").dataset.copyText = [
+    ["股票代码", "股票名称", "市场", "行业", "评分", "等级", "触发事件", "入池状态", "后续观察点"].join("\t"),
+    ...data.items.map((item) =>
+      [
+        item.stockCode,
+        item.stockName,
+        item.market === "US" ? "美股" : "港股",
+        item.industry,
+        item.score,
+        item.grade,
+        item.triggerEvent,
+        item.poolStatus,
+        item.followUpPoint
+      ].join("\t")
+    )
+  ].join("\n");
+  $("#dailyReportTable").innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>股票代码</th>
+          <th>股票名称</th>
+          <th>市场</th>
+          <th>行业</th>
+          <th>评分</th>
+          <th>等级</th>
+          <th>触发事件</th>
+          <th>入池状态</th>
+          <th>后续观察点</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${
+          data.items.length
+            ? data.items
+                .map(
+                  (item) => `
+                    <tr>
+                      <td><strong>${item.stockCode}</strong></td>
+                      <td>${item.stockName}</td>
+                      <td>${item.market === "US" ? "美股" : "港股"}</td>
+                      <td>${item.industry}</td>
+                      <td>${item.score}</td>
+                      <td>${item.grade}</td>
+                      <td>${item.triggerEvent}</td>
+                      <td>${item.poolStatus}</td>
+                      <td>${item.followUpPoint || "-"}</td>
+                    </tr>
+                  `
+                )
+                .join("")
+            : `<tr><td colspan="9" class="muted">暂无符合条件的每日输出</td></tr>`
+        }
+      </tbody>
+    </table>
+    <p class="muted">${data.disclaimer}</p>
+  `;
 };
 
 const renderSummary = (items) => {
@@ -674,7 +740,7 @@ const addToWatchlist = async (opportunityId) => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ opportunityId })
   });
-  await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist()]);
+  await Promise.all([renderOpportunities(), renderDailyReport(), renderPriorityWatch(), renderWatchlist()]);
 };
 
 const recordPersonalAction = async (opportunityId, actionType = "重点跟踪") => {
@@ -712,7 +778,7 @@ const submitEvent = async (formElement) => {
     })
   });
   formElement.reset();
-  await renderOpportunities();
+  await Promise.all([renderOpportunities(), renderDailyReport()]);
   await renderDetail(result.opportunity.symbol);
 };
 
@@ -731,7 +797,7 @@ const submitMarketSnapshot = async (formElement) => {
   });
   formElement.reset();
   await api("/api/reviews/weekly/regenerate", { method: "POST" });
-  await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist(), renderReview()]);
+  await Promise.all([renderOpportunities(), renderDailyReport(), renderPriorityWatch(), renderWatchlist(), renderReview()]);
 };
 
 const submitPerformance = async (formElement) => {
@@ -758,7 +824,7 @@ const submitPerformance = async (formElement) => {
   });
   await api("/api/reviews/weekly/regenerate", { method: "POST" });
   formElement.reset();
-  await Promise.all([renderPriorityWatch(), renderWatchlist(), renderReview()]);
+  await Promise.all([renderDailyReport(), renderPriorityWatch(), renderWatchlist(), renderReview()]);
 };
 
 const collectDisclosures = async (markets) => {
@@ -771,7 +837,7 @@ const collectDisclosures = async (markets) => {
       body: JSON.stringify({ markets, days: 7 })
     });
     showToast(`采集完成：导入${result.run.imported}条，状态${result.run.status}`, "success");
-    await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist(), renderIngestionRuns(), renderSystemStatus()]);
+    await Promise.all([renderOpportunities(), renderDailyReport(), renderPriorityWatch(), renderWatchlist(), renderIngestionRuns(), renderSystemStatus()]);
   } finally {
     buttons.forEach((button) => (button.disabled = false));
   }
@@ -787,7 +853,7 @@ const collectNews = async () => {
       body: JSON.stringify({ days: 7 })
     });
     showToast(`新闻采集完成：导入${result.run.imported}条，状态${result.run.status}`, result.errors.length ? "info" : "success");
-    await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist(), renderIngestionRuns(), renderSystemStatus()]);
+    await Promise.all([renderOpportunities(), renderDailyReport(), renderPriorityWatch(), renderWatchlist(), renderIngestionRuns(), renderSystemStatus()]);
   } finally {
     button.disabled = false;
   }
@@ -800,7 +866,7 @@ const refreshMarketSnapshots = async () => {
     const result = await api("/api/market/refresh", { method: "POST" });
     showToast(`行情刷新完成：更新${result.imported}只，同步走势${result.performanceSynced || 0}条，失败${result.failed}只`, result.failed ? "info" : "success");
     await api("/api/reviews/weekly/regenerate", { method: "POST" });
-    await Promise.all([renderOpportunities(), renderPriorityWatch(), renderWatchlist(), renderReview(), renderSystemStatus()]);
+    await Promise.all([renderOpportunities(), renderDailyReport(), renderPriorityWatch(), renderWatchlist(), renderReview(), renderSystemStatus()]);
   } finally {
     button.disabled = false;
   }
@@ -844,15 +910,15 @@ const initNavigation = () => {
 const initEvents = () => {
   $("#searchInput").addEventListener("input", (event) => {
     state.filters.q = event.target.value;
-    renderOpportunities();
+    Promise.all([renderOpportunities(), renderDailyReport()]);
   });
   $("#marketFilter").addEventListener("change", (event) => {
     state.filters.market = event.target.value;
-    renderOpportunities();
+    Promise.all([renderOpportunities(), renderDailyReport()]);
   });
   $("#gradeFilter").addEventListener("change", (event) => {
     state.filters.grade = event.target.value;
-    renderOpportunities();
+    Promise.all([renderOpportunities(), renderDailyReport()]);
   });
   $("#opportunityGrid").addEventListener("click", async (event) => {
     const detailId = event.target.dataset.detail;
@@ -867,6 +933,15 @@ const initEvents = () => {
       const backup = await api("/api/system/backup", { method: "POST" });
       return backup;
     }, "备份已完成");
+  });
+  $("#copyDailyReportButton").addEventListener("click", async () => {
+    const text = $("#dailyReportTable").dataset.copyText || "";
+    if (!text) {
+      showToast("暂无可复制的每日表格", "info");
+      return;
+    }
+    await navigator.clipboard.writeText(text);
+    showToast("每日表格已复制", "success");
   });
   $("#detailContent").addEventListener("click", async (event) => {
     const watchId = event.target.dataset.watch;
@@ -1053,6 +1128,7 @@ const bootstrap = async () => {
   initEvents();
   await Promise.all([
     renderOpportunities(),
+    renderDailyReport(),
     renderSystemStatus(),
     renderPriorityWatch(),
     renderWatchlist(),
