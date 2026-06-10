@@ -64,6 +64,7 @@ const summarizeRunErrors = (errors = []) => {
 const formatRunType = (type) =>
   ({
     "daily-run": "每日一键更新",
+    "due-tasks": "执行待处理项",
     "official-disclosures": "官方披露",
     "rss-news": "新闻/RSS",
     "bulk-events": "批量事件",
@@ -165,6 +166,7 @@ const renderHealthPanel = (data) => {
         </div>
         <em>${data.nextActions?.length ? "需更新" : "正常"}</em>
         <p>${data.nextActions?.[0] || "当前数据仍在建议更新窗口内"}</p>
+        <button id="runDueButton" class="secondary-btn" type="button" ${data.nextActions?.length ? "" : "disabled"}>执行待处理项</button>
       </article>
     `;
 };
@@ -212,6 +214,33 @@ const submitUpdateSchedule = async (formElement) => {
   });
   showToast("更新计划已保存", "success");
   await Promise.all([renderSystemStatus(), renderUpdateSchedule()]);
+};
+
+const runDueTasks = async () => {
+  const button = $("#runDueButton");
+  if (button) button.disabled = true;
+  try {
+    const result = await api("/api/system/run-due", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ days: 7, markets: ["US", "HK"] })
+    });
+    showToast(`待处理项执行完成：${result.tasks.length}项，导入${result.imported}条，失败${result.failed}条`, result.failed ? "info" : "success");
+    await Promise.all([
+      renderOpportunities(),
+      renderDailyReport(),
+      renderPriorityWatch(),
+      renderWatchlist(),
+      renderReview(),
+      renderIngestionRuns(),
+      renderSystemStatus(),
+      renderUpdateSchedule(),
+      renderModel()
+    ]);
+  } finally {
+    const freshButton = $("#runDueButton");
+    if (freshButton) freshButton.disabled = false;
+  }
 };
 
 const opportunityParams = () => {
@@ -1151,6 +1180,9 @@ const initEvents = () => {
   $("#updateScheduleForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     await submitUpdateSchedule(event.currentTarget);
+  });
+  $("#systemHealthPanel").addEventListener("click", async (event) => {
+    if (event.target.id === "runDueButton") await runDueTasks();
   });
   $("#dailyRunButton").addEventListener("click", () => runDailyUpdate());
   $("#collectAllButton").addEventListener("click", () => collectDisclosures(["US", "HK"]));

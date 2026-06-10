@@ -480,6 +480,17 @@ test("market refresh endpoint updates snapshots", async (t) => {
   assert.equal(daily.body.steps.market.imported, daily.body.imported);
   assert.ok(daily.body.dailyReport.count >= 1);
   assert.ok(daily.body.review.entryCount >= 1);
+
+  const due = await requestJson(baseUrl, "/api/system/run-due", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tasks: ["market"] })
+  });
+  assert.equal(due.response.status, 200);
+  assert.deepEqual(due.body.tasks, ["market"]);
+  assert.ok(due.body.imported >= 1);
+  assert.equal(due.body.run.type, "due-tasks");
+  assert.ok(Array.isArray(due.body.nextActionsAfter));
 });
 
 test("feishu APIs report skipped when webhook is not configured", async (t) => {

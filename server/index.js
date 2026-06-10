@@ -342,6 +342,90 @@ const runDailyUpdate = async ({ days = 7, markets = ["US", "HK"], symbols, inclu
   };
 };
 
+const runDueTasks = async ({ days = 7, markets = ["US", "HK"], symbols, tasks } = {}) => {
+  const startedAt = new Date().toISOString();
+  const before = await getSystemStatus();
+  const requestedTasks = Array.isArray(tasks)
+    ? tasks
+    : Object.entries(before.schedule || {})
+        .filter(([, item]) => item.due)
+        .map(([key]) => key);
+  const steps = {};
+
+  if (requestedTasks.includes("officialDisclosures")) {
+    steps.officialDisclosures = await runOfficialDisclosureCollection({ markets, days });
+  }
+  if (requestedTasks.includes("news")) {
+    steps.news = await runNewsCollection({ days });
+  }
+  if (requestedTasks.includes("market")) {
+    steps.market = await runMarketRefresh({ symbols });
+  }
+  if (requestedTasks.includes("review")) {
+    steps.review = await regenerateWeeklyReview();
+  }
+
+  if (!requestedTasks.length) {
+    const finishedAt = new Date().toISOString();
+    const after = await getSystemStatus();
+    return {
+      status: "idle",
+      startedAt,
+      finishedAt,
+      tasks: [],
+      imported: 0,
+      failed: 0,
+      run: null,
+      steps,
+      nextActionsBefore: before.nextActions || [],
+      nextActionsAfter: after.nextActions || []
+    };
+  }
+
+  const imported =
+    (steps.officialDisclosures?.run?.imported || 0) +
+    (steps.news?.run?.imported || 0) +
+    (steps.market?.imported || 0);
+  const failed =
+    (steps.officialDisclosures?.run?.failed || 0) +
+    (steps.news?.run?.failed || 0) +
+    (steps.market?.failed || 0);
+  const errors = [
+    ...(steps.officialDisclosures?.errors || []),
+    ...(steps.news?.errors || []),
+    ...(steps.market?.errors || [])
+  ];
+  const finishedAt = new Date().toISOString();
+  const status = failed ? "partial" : "success";
+  const run = await recordIngestionRun({
+    type: "due-tasks",
+    status,
+    startedAt,
+    finishedAt,
+    markets,
+    days,
+    imported,
+    failed,
+    scored: (steps.officialDisclosures?.run?.scored || 0) + (steps.news?.run?.scored || 0),
+    errors,
+    tasks: requestedTasks
+  });
+  const after = await getSystemStatus();
+
+  return {
+    status,
+    startedAt,
+    finishedAt,
+    tasks: requestedTasks,
+    imported,
+    failed,
+    run,
+    steps,
+    nextActionsBefore: before.nextActions || [],
+    nextActionsAfter: after.nextActions || []
+  };
+};
+
 const routeApi = async (req, res, url) => {
   const db = await readDb();
 
@@ -370,6 +454,17 @@ const routeApi = async (req, res, url) => {
   if (req.method === "PUT" && url.pathname === "/api/system/update-schedule") {
     const body = await readBody(req);
     return json(res, await updateUpdateSchedule(body));
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/system/run-due") {
+    const body = await readBody(req);
+    const markets = Array.isArray(body.markets) && body.markets.length ? body.markets : ["US", "HK"];
+    return json(res, await runDueTasks({
+      days: Number(body.days || 7),
+      markets,
+      symbols: body.symbols,
+      tasks: body.tasks
+    }));
   }
 
   if (req.method === "POST" && url.pathname === "/api/system/backup") {
