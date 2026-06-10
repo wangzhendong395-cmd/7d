@@ -389,6 +389,9 @@ test("production maintenance APIs manage source pool, status, and backups", asyn
   assert.equal(status.response.status, 200);
   assert.equal(status.body.ok, true);
   assert.ok(status.body.dataSources.us >= 1);
+  assert.ok(status.body.freshness);
+  assert.ok("recentEventCount" in status.body.freshness);
+  assert.ok(["fresh", "stale", "missing"].includes(status.body.freshness.marketStatus));
 
   const addedUs = await requestJson(baseUrl, "/api/data-sources/us/stocks", {
     method: "POST",

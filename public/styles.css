@@ -31,6 +31,15 @@ select {
   font: inherit;
 }
 
+a.primary-btn,
+a.secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  text-decoration: none;
+}
+
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
@@ -146,6 +155,33 @@ h2 {
   border-radius: 8px;
   background: #fff7df;
   color: #513a0a;
+}
+
+.standalone-notice {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.standalone-notice .panel {
+  width: min(620px, 100%);
+  display: grid;
+  gap: 14px;
+}
+
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.notice-actions code {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf9;
 }
 
 .view {
@@ -271,6 +307,67 @@ h2 {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.health-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--green);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.health-card > div {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.health-card span,
+.health-card p {
+  color: var(--muted);
+}
+
+.health-card strong {
+  font-size: 20px;
+}
+
+.health-card em {
+  justify-self: start;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #0f513f;
+  background: #dff3ec;
+  font-style: normal;
+  font-size: 12px;
+}
+
+.health-card.stale {
+  border-left-color: var(--amber);
+}
+
+.health-card.stale em {
+  color: #5a3908;
+  background: #fff1d6;
+}
+
+.health-card.missing {
+  border-left-color: var(--red);
+}
+
+.health-card.missing em {
+  color: #7a201d;
+  background: #fde2e0;
 }
 
 .pool-list {
@@ -439,6 +536,12 @@ th {
   color: var(--muted);
   background: #f8faf9;
   font-weight: 600;
+}
+
+.run-error {
+  max-width: 320px;
+  white-space: normal;
+  color: var(--muted);
 }
 
 .panel-grid {

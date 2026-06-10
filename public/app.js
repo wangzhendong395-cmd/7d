@@ -27,6 +27,49 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
 const gradeClass = (grade) => `grade-${grade}`;
+const isFilePreview = () => window.location.protocol === "file:";
+
+const renderFilePreviewNotice = () => {
+  document.body.innerHTML = `
+    <main class="standalone-notice">
+      <section class="panel">
+        <h1>请使用本地服务地址打开</h1>
+        <p>当前是直接打开 HTML 文件，后端 API、行情刷新、飞书和每日更新不会运行。</p>
+        <div class="notice-actions">
+          <a class="primary-btn" href="http://localhost:7317/">打开本地服务</a>
+          <code>npm run dev</code>
+        </div>
+      </section>
+    </main>
+  `;
+};
+
+const formatDuration = (start, end) => {
+  const started = new Date(start).getTime();
+  const finished = new Date(end || start).getTime();
+  if (!Number.isFinite(started) || !Number.isFinite(finished)) return "-";
+  const seconds = Math.max(0, Math.round((finished - started) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+};
+
+const summarizeRunErrors = (errors = []) => {
+  if (!errors.length) return "-";
+  return errors
+    .slice(0, 2)
+    .map((error) => [error.source, error.message || error.error].filter(Boolean).join(": "))
+    .join("；");
+};
+
+const formatRunType = (type) =>
+  ({
+    "daily-run": "每日一键更新",
+    "official-disclosures": "官方披露",
+    "rss-news": "新闻/RSS",
+    "bulk-events": "批量事件",
+    "manual-event": "手动事件",
+    "market-snapshot": "行情快照"
+  }[type] || type);
 
 const showToast = (message, type = "info") => {
   const toast = $("#toast");
@@ -54,6 +97,67 @@ const renderSystemStatus = async () => {
   const data = await api("/api/system/status");
   const lastRun = data.lastRun ? `${data.lastRun.status} / ${data.lastRun.imported ?? 0}条` : "暂无采集";
   $("#systemStatus").textContent = `事件${data.records.rawEvents} / 股票${data.records.groupedStocks} / ${lastRun}`;
+  renderHealthPanel(data);
+};
+
+const healthStatusText = (status) =>
+  ({
+    fresh: "正常",
+    stale: "需更新",
+    missing: "缺数据"
+  }[status] || "待检查");
+
+const ageText = (hours) => {
+  if (hours === null || hours === undefined) return "暂无";
+  if (hours < 1) return "1小时内";
+  if (hours < 24) return `${hours}小时前`;
+  return `${Math.round(hours / 24)}天前`;
+};
+
+const renderHealthPanel = (data) => {
+  const panel = $("#systemHealthPanel");
+  if (!panel || !data.freshness) return;
+  const { freshness } = data;
+  const cards = [
+    {
+      label: "7日事件",
+      value: `${freshness.recentEventCount}条`,
+      meta: `最近更新 ${ageText(freshness.eventAgeHours)}`,
+      status: freshness.eventStatus
+    },
+    {
+      label: "行情快照",
+      value: `${data.records.marketSnapshots}只`,
+      meta: `最近更新 ${ageText(freshness.marketAgeHours)}`,
+      status: freshness.marketStatus
+    },
+    {
+      label: "模型复盘",
+      value: data.lastRun?.type === "daily-run" ? "已串联" : "独立运行",
+      meta: `最近复盘 ${ageText(freshness.reviewAgeHours)}`,
+      status: freshness.reviewStatus
+    },
+    {
+      label: "最近采集",
+      value: data.lastRun ? formatRunType(data.lastRun.type) : "暂无",
+      meta: data.lastRun ? `${data.lastRun.status} / 导入${data.lastRun.imported ?? 0} / 失败${data.lastRun.failed ?? 0}` : "点击每日一键更新",
+      status: data.lastRun?.status === "success" ? "fresh" : data.lastRun ? "stale" : "missing"
+    }
+  ];
+  panel.innerHTML = cards
+    .map(
+      (item) => `
+        <article class="health-card ${item.status}">
+          <div>
+            <span>${item.label}</span>
+            <strong>${item.value}</strong>
+          </div>
+          <em>${healthStatusText(item.status)}</em>
+          <p>${item.meta}</p>
+        </article>
+      `
+    )
+    .join("");
 };
 
 const opportunityParams = () => {
@@ -467,8 +571,10 @@ const renderIngestionRuns = async () => {
           <th>状态</th>
           <th>市场</th>
           <th>导入</th>
+          <th>失败</th>
           <th>评分</th>
-          <th>错误</th>
+          <th>耗时</th>
+          <th>错误摘要</th>
         </tr>
       </thead>
       <tbody>
@@ -480,17 +586,19 @@ const renderIngestionRuns = async () => {
                   (item) => `
                     <tr>
                       <td>${new Date(item.createdAt).toLocaleString()}</td>
-                      <td>${item.type}</td>
+                      <td>${formatRunType(item.type)}</td>
                       <td>${item.status}</td>
                       <td>${(item.markets || []).join("/") || "-"}</td>
                       <td>${item.imported ?? 0}</td>
+                      <td>${item.failed ?? 0}</td>
                       <td>${item.scored ?? 0}</td>
-                      <td>${(item.errors || []).map((error) => error.source).join("、") || "-"}</td>
+                      <td>${formatDuration(item.startedAt || item.createdAt, item.finishedAt || item.createdAt)}</td>
+                      <td class="run-error">${summarizeRunErrors(item.errors)}</td>
                     </tr>
                   `
                 )
                 .join("")
-            : `<tr><td colspan="7" class="muted">暂无采集记录</td></tr>`
+            : `<tr><td colspan="9" class="muted">暂无采集记录</td></tr>`
         }
       </tbody>
     </table>
@@ -1170,6 +1278,10 @@ const bootstrap = async () => {
   ]);
 };
 
-bootstrap().catch((error) => {
-  document.body.innerHTML = `<main class="app"><h1>加载失败</h1><p>${error.message}</p></main>`;
-});
+if (isFilePreview()) {
+  renderFilePreviewNotice();
+} else {
+  bootstrap().catch((error) => {
+    document.body.innerHTML = `<main class="app"><h1>加载失败</h1><p>${error.message}</p></main>`;
+  });
+}

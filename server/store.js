@@ -722,6 +722,7 @@ export const regenerateWeeklyReview = async () => {
   db.weeklyReview = {
     id: `review-${new Date().toISOString().slice(0, 10)}`,
     week: new Date().toISOString().slice(0, 10),
+    generatedAt: new Date().toISOString(),
     entryCount: entries.length,
     priorityEntryCount: priorityEntries.length,
     sAverageReturn: average(sReturns),
@@ -865,11 +866,46 @@ export const getSystemStatus = async () => {
   const db = await readDb();
   const lastRun = db.ingestionRuns.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
   const symbols = new Set(db.scoredEvents.map((item) => item.symbol));
+  const now = Date.now();
+  const ageHours = (value) => {
+    const time = new Date(value || 0).getTime();
+    if (!Number.isFinite(time) || time <= 0) return null;
+    return Math.round(((now - time) / 36e5) * 10) / 10;
+  };
+  const latestEventAt = db.rawEvents
+    .map((item) => item.publishedAt || item.createdAt)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b) - new Date(a))[0] || null;
+  const latestMarketAt = db.marketSnapshots
+    .map((item) => item.capturedAt || item.createdAt)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b) - new Date(a))[0] || null;
+  const latestReviewAt = db.weeklyReview?.generatedAt || db.weeklyReview?.updatedAt || db.weeklyReview?.week || null;
+  const recentEventCount = db.rawEvents.filter((item) => {
+    const time = new Date(item.publishedAt || item.createdAt || 0).getTime();
+    return Number.isFinite(time) && now - time <= 7 * 24 * 60 * 60 * 1000;
+  }).length;
+  const marketAgeHours = ageHours(latestMarketAt);
+  const eventAgeHours = ageHours(latestEventAt);
+  const reviewAgeHours = ageHours(latestReviewAt);
+  const freshness = {
+    latestEventAt,
+    latestMarketAt,
+    latestReviewAt,
+    recentEventCount,
+    eventAgeHours,
+    marketAgeHours,
+    reviewAgeHours,
+    eventStatus: eventAgeHours === null ? "missing" : eventAgeHours <= 24 ? "fresh" : "stale",
+    marketStatus: marketAgeHours === null ? "missing" : marketAgeHours <= 8 ? "fresh" : "stale",
+    reviewStatus: reviewAgeHours === null ? "missing" : reviewAgeHours <= 168 ? "fresh" : "stale"
+  };
   return {
     ok: true,
     updatedAt: new Date().toISOString(),
     dbPath: getDbPath(),
     lastRun,
+    freshness,
     records: {
       rawEvents: db.rawEvents.length,
       opportunities: db.scoredEvents.length,
