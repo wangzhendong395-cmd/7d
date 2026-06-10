@@ -35,6 +35,7 @@ const seedDb = () => ({
   modelVersion,
   dataSourceConfig: seedDataSourceConfig,
   sourceCoverageVersion,
+  updateSchedule: defaultUpdateSchedule,
   modelSuggestions: [
     {
       id: "ms-product-validation-v1",
@@ -96,6 +97,46 @@ const defaultNewsFeeds = [
     note: "公共财经新闻RSS，按采集池股票名称和代码匹配。"
   }
 ];
+
+const defaultUpdateSchedule = {
+  officialDisclosures: {
+    label: "官方披露",
+    cadenceHours: 24,
+    suggestedWindow: "港股收盘后与美股盘前各检查一次",
+    enabled: true
+  },
+  news: {
+    label: "新闻/RSS",
+    cadenceHours: 4,
+    suggestedWindow: "交易时段每4小时，非交易时段每日一次",
+    enabled: true
+  },
+  market: {
+    label: "行情快照",
+    cadenceHours: 1,
+    suggestedWindow: "交易时段每30-60分钟，收盘后补一次",
+    enabled: true
+  },
+  review: {
+    label: "模型复盘",
+    cadenceHours: 168,
+    suggestedWindow: "每周一次，重点复盘S/A级入池表现",
+    enabled: true
+  }
+};
+
+const normalizeUpdateSchedule = (schedule = {}) =>
+  Object.fromEntries(
+    Object.entries(defaultUpdateSchedule).map(([key, value]) => [
+      key,
+      {
+        ...value,
+        ...(schedule[key] || {}),
+        cadenceHours: Number(schedule[key]?.cadenceHours || value.cadenceHours),
+        enabled: schedule[key]?.enabled ?? value.enabled
+      }
+    ])
+  );
 
 const isPriorityGrade = (grade) => ["S", "A"].includes(grade);
 const isAutoWatchGrade = (grade) => ["S", "A", "B"].includes(grade);
@@ -346,6 +387,7 @@ const ensureShape = (db) => ({
     ingestionRuns: db.ingestionRuns || [],
     dataSourceConfig: db.dataSourceConfig || seedDataSourceConfig,
     newsFeeds: db.newsFeeds || defaultNewsFeeds,
+    updateSchedule: normalizeUpdateSchedule(db.updateSchedule),
     feishuEvents: db.feishuEvents || []
   })
 });
@@ -359,7 +401,8 @@ export const readDb = async () => {
       db.sourceCoverageVersion !== parsed.sourceCoverageVersion ||
       db.customIndustries.length !== (parsed.customIndustries || []).length ||
       db.dataSourceConfig.us.length !== (parsed.dataSourceConfig?.us || []).length ||
-      db.dataSourceConfig.hk.length !== (parsed.dataSourceConfig?.hk || []).length;
+      db.dataSourceConfig.hk.length !== (parsed.dataSourceConfig?.hk || []).length ||
+      !parsed.updateSchedule;
     if (shouldPersistMigration) await writeDb(db);
     return db;
   } catch (error) {
@@ -771,6 +814,31 @@ export const getNewsFeeds = async () => {
   return db.newsFeeds || [];
 };
 
+export const getUpdateSchedule = async () => {
+  const db = await readDb();
+  return db.updateSchedule;
+};
+
+export const updateUpdateSchedule = async (payload = {}) => {
+  const db = await readDb();
+  db.updateSchedule = normalizeUpdateSchedule({
+    ...db.updateSchedule,
+    ...Object.fromEntries(
+      Object.entries(payload).map(([key, value]) => [
+        key,
+        {
+          ...(db.updateSchedule?.[key] || {}),
+          ...value,
+          cadenceHours: value?.cadenceHours === undefined ? db.updateSchedule?.[key]?.cadenceHours : Number(value.cadenceHours),
+          enabled: value?.enabled === undefined ? db.updateSchedule?.[key]?.enabled : Boolean(value.enabled)
+        }
+      ])
+    )
+  });
+  await writeDb(db);
+  return db.updateSchedule;
+};
+
 export const upsertNewsFeed = async (payload) => {
   const db = await readDb();
   const feed = {
@@ -900,12 +968,46 @@ export const getSystemStatus = async () => {
     marketStatus: marketAgeHours === null ? "missing" : marketAgeHours <= 8 ? "fresh" : "stale",
     reviewStatus: reviewAgeHours === null ? "missing" : reviewAgeHours <= 168 ? "fresh" : "stale"
   };
+  const schedule = normalizeUpdateSchedule(db.updateSchedule);
+  const taskLastRun = {
+    officialDisclosures: db.ingestionRuns
+      .filter((item) => ["official-disclosures", "official-disclosures-cli", "daily-run"].includes(item.type))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null,
+    news: db.ingestionRuns
+      .filter((item) => ["rss-news", "daily-run"].includes(item.type))
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null,
+    market: latestMarketAt ? { createdAt: latestMarketAt, status: freshness.marketStatus } : null,
+    review: latestReviewAt ? { createdAt: latestReviewAt, status: freshness.reviewStatus } : null
+  };
+  const scheduleStatus = Object.fromEntries(
+    Object.entries(schedule).map(([key, item]) => {
+      const last = taskLastRun[key];
+      const lastAt = last?.createdAt || last?.finishedAt || last?.startedAt || null;
+      const hoursSince = ageHours(lastAt);
+      const due = item.enabled && (hoursSince === null || hoursSince >= item.cadenceHours);
+      return [
+        key,
+        {
+          ...item,
+          lastAt,
+          hoursSince,
+          due,
+          status: due ? "due" : "ok"
+        }
+      ];
+    })
+  );
+  const nextActions = Object.values(scheduleStatus)
+    .filter((item) => item.due)
+    .map((item) => `${item.label}已到建议更新窗口`);
   return {
     ok: true,
     updatedAt: new Date().toISOString(),
     dbPath: getDbPath(),
     lastRun,
     freshness,
+    schedule: scheduleStatus,
+    nextActions,
     records: {
       rawEvents: db.rawEvents.length,
       opportunities: db.scoredEvents.length,

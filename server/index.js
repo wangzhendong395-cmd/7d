@@ -34,6 +34,7 @@ import {
   getNewsFeeds,
   getSystemStatus,
   getTrackedMarketStocks,
+  getUpdateSchedule,
   readDb,
   recordFeishuEvent,
   recordIngestionRun,
@@ -43,6 +44,7 @@ import {
   regenerateWeeklyReview,
   updatePerformance,
   updateCustomIndustry,
+  updateUpdateSchedule,
   upsertNewsFeed,
   upsertDataSourceStock
 } from "./store.js";
@@ -359,6 +361,15 @@ const routeApi = async (req, res, url) => {
 
   if (req.method === "GET" && url.pathname === "/api/system/status") {
     return json(res, await getSystemStatus());
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/system/update-schedule") {
+    return json(res, await getUpdateSchedule());
+  }
+
+  if (req.method === "PUT" && url.pathname === "/api/system/update-schedule") {
+    const body = await readBody(req);
+    return json(res, await updateUpdateSchedule(body));
   }
 
   if (req.method === "POST" && url.pathname === "/api/system/backup") {

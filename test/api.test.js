@@ -392,6 +392,16 @@ test("production maintenance APIs manage source pool, status, and backups", asyn
   assert.ok(status.body.freshness);
   assert.ok("recentEventCount" in status.body.freshness);
   assert.ok(["fresh", "stale", "missing"].includes(status.body.freshness.marketStatus));
+  assert.ok(status.body.schedule.market);
+  assert.ok(Array.isArray(status.body.nextActions));
+
+  const savedSchedule = await requestJson(baseUrl, "/api/system/update-schedule", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ market: { cadenceHours: 2, enabled: true } })
+  });
+  assert.equal(savedSchedule.response.status, 200);
+  assert.equal(savedSchedule.body.market.cadenceHours, 2);
 
   const addedUs = await requestJson(baseUrl, "/api/data-sources/us/stocks", {
     method: "POST",

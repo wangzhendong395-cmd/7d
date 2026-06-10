@@ -157,7 +157,61 @@ const renderHealthPanel = (data) => {
         </article>
       `
     )
-    .join("");
+    .join("") + `
+      <article class="health-card ${data.nextActions?.length ? "stale" : "fresh"}">
+        <div>
+          <span>下一步</span>
+          <strong>${data.nextActions?.length ? `${data.nextActions.length}项待处理` : "无需操作"}</strong>
+        </div>
+        <em>${data.nextActions?.length ? "需更新" : "正常"}</em>
+        <p>${data.nextActions?.[0] || "当前数据仍在建议更新窗口内"}</p>
+      </article>
+    `;
+};
+
+const renderUpdateSchedule = async () => {
+  const schedule = await api("/api/system/update-schedule");
+  $("#updateScheduleForm").innerHTML = `
+    <div class="schedule-head">
+      <div>
+        <h3>更新计划</h3>
+        <p class="muted">按任务类型控制建议刷新频率，系统据此判断是否需要更新。</p>
+      </div>
+      <button class="secondary-btn" type="submit">保存计划</button>
+    </div>
+    ${Object.entries(schedule)
+      .map(
+        ([key, item]) => `
+          <label class="schedule-card" data-schedule-key="${key}">
+            <span>
+              <input name="${key}.enabled" type="checkbox" ${item.enabled ? "checked" : ""} />
+              ${item.label}
+            </span>
+            <input name="${key}.cadenceHours" type="number" min="1" step="1" value="${item.cadenceHours}" />
+            <p>${item.suggestedWindow}</p>
+          </label>
+        `
+      )
+      .join("")}
+  `;
+};
+
+const submitUpdateSchedule = async (formElement) => {
+  const payload = {};
+  formElement.querySelectorAll(".schedule-card").forEach((card) => {
+    const key = card.dataset.scheduleKey;
+    payload[key] = {
+      enabled: card.querySelector(`[name="${key}.enabled"]`).checked,
+      cadenceHours: Number(card.querySelector(`[name="${key}.cadenceHours"]`).value || 1)
+    };
+  });
+  await api("/api/system/update-schedule", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  showToast("更新计划已保存", "success");
+  await Promise.all([renderSystemStatus(), renderUpdateSchedule()]);
 };
 
 const opportunityParams = () => {
@@ -953,6 +1007,7 @@ const runDailyUpdate = async () => {
       renderReview(),
       renderIngestionRuns(),
       renderSystemStatus(),
+      renderUpdateSchedule(),
       renderModel()
     ]);
   } finally {
@@ -1092,6 +1147,10 @@ const initEvents = () => {
   $("#performanceForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     await submitPerformance(event.currentTarget);
+  });
+  $("#updateScheduleForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await submitUpdateSchedule(event.currentTarget);
   });
   $("#dailyRunButton").addEventListener("click", () => runDailyUpdate());
   $("#collectAllButton").addEventListener("click", () => collectDisclosures(["US", "HK"]));
@@ -1272,6 +1331,7 @@ const bootstrap = async () => {
     renderFeishuStatus(),
     renderBrokerStatus(),
     renderIngestionRuns(),
+    renderUpdateSchedule(),
     renderReview(),
     renderIndustries(),
     renderModel()
